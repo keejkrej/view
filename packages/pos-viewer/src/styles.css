@@ -1,0 +1,105 @@
+.pv-root {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 320px;
+  min-height: 100%;
+  min-width: 0;
+  background: #f3f1ea;
+  color: #181814;
+}
+
+.pv-sidebar {
+  min-width: 0;
+  overflow: auto;
+  padding: 20px 18px;
+  background: rgba(255, 255, 255, 0.48);
+  backdrop-filter: blur(8px);
+}
+
+.pv-sidebar-left {
+  border-right: 1px solid rgba(84, 84, 76, 0.12);
+}
+
+.pv-sidebar-right {
+  border-left: 1px solid rgba(84, 84, 76, 0.12);
+}
+
+.pv-main {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+}
+
+.pv-title {
+  margin-bottom: 10px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(24, 24, 20, 0.56);
+}
+
+.pv-viewport {
+  position: relative;
+  min-height: 0;
+  background:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.02) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.02) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.02) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.02) 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+.pv-viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: default;
+}
+
+.pv-overlay {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(84, 84, 76, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+  color: #181814;
+  backdrop-filter: blur(8px);
+}
+
+.pv-error {
+  border-color: rgba(160, 73, 73, 0.22);
+  color: #6e1d1d;
+}
+
+.pv-hintOverlay {
+  color: rgba(24, 24, 20, 0.72);
+}
+
+@media (max-width: 1280px) {
+  .pv-root {
+    grid-template-columns: 280px minmax(0, 1fr) 280px;
+  }
+}
+
+@media (max-width: 980px) {
+  .pv-root {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(360px, 1fr) auto;
+  }
+
+  .pv-sidebar-left,
+  .pv-sidebar-right {
+    border: none;
+  }
+
+  .pv-sidebar-left {
+    border-bottom: 1px solid rgba(84, 84, 76, 0.12);
+  }
+
+  .pv-sidebar-right {
+    border-top: 1px solid rgba(84, 84, 76, 0.12);
+  }
+}

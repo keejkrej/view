@@ -1,0 +1,53 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", sans-serif;
+  background: #f7f6f2;
+  color: #181814;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(84, 84, 76, 0.08), transparent 24%),
+    linear-gradient(180deg, #faf8f3, #f1eee6 78%);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(84, 84, 76, 0.12);
+  background: rgba(250, 248, 243, 0.88);
+  backdrop-filter: blur(12px);
+}
+
+.app-main {
+  min-height: 0;
+}
+
+.app-main > * {
+  height: 100%;
+}
+
+.app-empty {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  padding: 32px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.45);
+}

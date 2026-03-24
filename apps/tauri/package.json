@@ -1,0 +1,31 @@
+{
+  "name": "@view/tauri-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev:web": "vite --host 127.0.0.1 --port 5173",
+    "dev": "bunx @tauri-apps/cli dev",
+    "build:renderer": "tsc --noEmit && vite build",
+    "build": "bun run build:renderer",
+    "typecheck": "tsc --noEmit",
+    "check:tauri": "cargo check --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@view/pos-viewer": "workspace:*",
+    "baseui": "^16.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "styletron-engine-atomic": "^1.6.2",
+    "styletron-react": "^6.1.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.3.0"
+  }
+}

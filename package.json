@@ -1,0 +1,19 @@
+{
+  "name": "view",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "bun@1.2.22",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "bun run build:viewer && bun run build:tauri:renderer",
+    "build:viewer": "bun run --cwd packages/pos-viewer build",
+    "build:tauri:renderer": "bun run --cwd apps/tauri build:renderer",
+    "check:tauri": "bun run --cwd apps/tauri check:tauri",
+    "dev": "bun run --cwd apps/tauri dev",
+    "test": "bun run --cwd packages/pos-viewer test",
+    "typecheck": "bun run --cwd packages/pos-viewer typecheck && bun run --cwd apps/tauri typecheck"
+  }
+}

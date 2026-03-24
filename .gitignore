@@ -1,0 +1,10 @@
+node_modules
+.DS_Store
+dist
+coverage
+.turbo
+target
+src-tauri/target
+Cargo.lock
+*.log
+
