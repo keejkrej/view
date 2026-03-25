@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@view/pos-viewer": ["../../packages/pos-viewer/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
