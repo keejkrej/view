@@ -1,9 +1,6 @@
 import { Slider } from "@base-ui/react";
 import {
-  Aperture,
   FolderOpen,
-  Grid3X3,
-  Layers3,
   X,
 } from "lucide-react";
 import {
@@ -36,6 +33,7 @@ import {
   type WorkspaceScan,
 } from "@view/pos-viewer";
 import { Button } from "./components/ui/button";
+import { Card } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import {
   Select,
@@ -193,29 +191,15 @@ function drawGridOverlay(
 
 function PanelCard({
   title,
-  eyebrow,
-  icon,
   children,
 }: {
   title: string;
-  eyebrow?: string;
-  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-3 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-start justify-between gap-2.5">
-        <div className="min-w-0">
-          {eyebrow ? (
-            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-              {eyebrow}
-            </p>
-          ) : null}
-          <h2 className="mt-1 text-[0.9rem] font-semibold leading-none text-foreground">{title}</h2>
-        </div>
-        {icon ? (
-          <div className="text-muted-foreground">{icon}</div>
-        ) : null}
+    <section className="space-y-3 py-4 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-foreground">{title}</h2>
       </div>
       <div className="space-y-3">{children}</div>
     </section>
@@ -234,10 +218,10 @@ function Field({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-3">
-        <label className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+        <label className="text-xs font-medium text-muted-foreground">
           {label}
         </label>
-        {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
+        {hint ? <span className="text-xs text-muted-foreground/80">{hint}</span> : null}
       </div>
       {children}
     </div>
@@ -329,11 +313,11 @@ function AppSlider({
       onValueCommitted={onCommit}
       className="flex h-6 items-center"
     >
-      <Slider.Control className="relative h-1.25 w-full rounded-full bg-white/8">
+      <Slider.Control className="relative h-1.5 w-full rounded-full bg-input">
         <Slider.Track className="relative h-full rounded-full">
-          <Slider.Indicator className="absolute h-full rounded-full bg-primary shadow-[0_0_20px_color-mix(in_srgb,var(--primary)_45%,transparent)]" />
+          <Slider.Indicator className="absolute h-full rounded-full bg-primary" />
         </Slider.Track>
-        <Slider.Thumb className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-card shadow-[0_4px_14px_rgba(0,0,0,0.24)] outline-none ring-3 ring-background/50" />
+        <Slider.Thumb className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background shadow-sm outline-none ring-2 ring-background" />
       </Slider.Control>
     </Slider.Root>
   );
@@ -349,6 +333,7 @@ export default function ViewerWorkspace({
   onClearWorkspace,
 }: ViewerWorkspaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const frameCacheRef = useRef(new FrameCache());
   const renderRafRef = useRef<number | null>(null);
@@ -376,6 +361,7 @@ export default function ViewerWorkspace({
   const [contrastMin, setContrastMin] = useState(0);
   const [contrastMax, setContrastMax] = useState(1);
   const [timeSliderIndex, setTimeSliderIndex] = useState(0);
+  const [viewportSize, setViewportSize] = useState(0);
 
   const queueRender = useCallback(() => {
     if (renderRafRef.current != null) return;
@@ -395,34 +381,8 @@ export default function ViewerWorkspace({
       ctx.save();
       ctx.scale(dprRef.current, dprRef.current);
 
-      const background = ctx.createLinearGradient(0, 0, cssWidth, cssHeight);
-      background.addColorStop(0, "#0f1729");
-      background.addColorStop(0.52, "#090f1d");
-      background.addColorStop(1, "#060913");
-      ctx.fillStyle = background;
+      ctx.fillStyle = "#09090b";
       ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-      const glow = ctx.createRadialGradient(
-        cssWidth * 0.5,
-        cssHeight * 0.22,
-        0,
-        cssWidth * 0.5,
-        cssHeight * 0.22,
-        Math.max(cssWidth, cssHeight) * 0.7,
-      );
-      glow.addColorStop(0, "rgba(114, 92, 255, 0.18)");
-      glow.addColorStop(0.45, "rgba(56, 189, 248, 0.06)");
-      glow.addColorStop(1, "rgba(0, 0, 0, 0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-      ctx.fillStyle = "rgba(255,255,255,0.035)";
-      for (let x = 0; x < cssWidth; x += 24) {
-        ctx.fillRect(x, 0, 1, cssHeight);
-      }
-      for (let y = 0; y < cssHeight; y += 24) {
-        ctx.fillRect(0, y, cssWidth, 1);
-      }
 
       if (cached) {
         const scale = Math.min(cssWidth / cached.frame.width, cssHeight / cached.frame.height);
@@ -430,15 +390,15 @@ export default function ViewerWorkspace({
         const drawHeight = cached.frame.height * scale;
         const drawX = (cssWidth - drawWidth) / 2;
         const drawY = (cssHeight - drawHeight) / 2;
-        ctx.fillStyle = "rgba(148,163,184,0.08)";
-        ctx.fillRect(drawX - 14, drawY - 14, drawWidth + 28, drawHeight + 28);
-        ctx.strokeStyle = "rgba(255,255,255,0.06)";
-        ctx.strokeRect(drawX - 14.5, drawY - 14.5, drawWidth + 29, drawHeight + 29);
+        ctx.fillStyle = "rgba(255,255,255,0.03)";
+        ctx.fillRect(drawX - 8, drawY - 8, drawWidth + 16, drawHeight + 16);
+        ctx.strokeStyle = "rgba(255,255,255,0.08)";
+        ctx.strokeRect(drawX - 8.5, drawY - 8.5, drawWidth + 17, drawHeight + 17);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(cached.prepared, drawX, drawY, drawWidth, drawHeight);
         drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid);
       } else {
-        ctx.fillStyle = "rgba(226,232,240,0.72)";
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
         ctx.font = "500 14px 'DM Sans', 'Segoe UI Variable', sans-serif";
         ctx.fillText(
           !root ? "Open a workspace to load frames" : loading ? "Loading frame..." : "No frame loaded",
@@ -561,6 +521,20 @@ export default function ViewerWorkspace({
   }, [frame, contrastMin, contrastMax]);
 
   useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const resize = () => {
+      setViewportSize(Math.max(1, Math.min(stage.clientWidth, stage.clientHeight)));
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(stage);
+    resize();
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
     const view = viewportRef.current;
     const canvas = canvasRef.current;
     if (!view || !canvas) return;
@@ -679,27 +653,20 @@ export default function ViewerWorkspace({
   const frameSummary = loading ? "Loading frame" : frame ? dims : "No frame";
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-[18rem] bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--primary)_11%,transparent),transparent)]" />
-        <div className="absolute right-[-5rem] top-24 h-56 w-56 rounded-full bg-cyan-400/6 blur-3xl" />
-      </div>
-
-      <div className="relative mx-auto flex min-h-screen max-w-[1720px] flex-col px-3 py-3 md:px-4 md:py-4">
-        <header className="border-b border-border px-3 py-3 md:px-4 md:py-3">
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto flex min-h-screen max-w-[1720px] flex-col px-3 py-3 md:px-4 md:py-4">
+        <header className="border-b border-border px-3 py-3 md:px-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg font-semibold tracking-[-0.03em] text-foreground md:text-xl">
+                <h1 className="text-lg font-medium text-foreground md:text-xl">
                   {workspaceName}
                 </h1>
-                <span className="metric-surface rounded-full px-2.5 py-1 text-[11px] text-muted-foreground">
+                <span className="rounded-sm border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {workspaceStatus}
                 </span>
               </div>
-              <div className="metric-surface max-w-full rounded-xl px-3 py-1.5 text-[11px] text-muted-foreground">
-                <span className="block truncate font-mono">{root || "No workspace selected"}</span>
-              </div>
+              <p className="truncate text-xs text-muted-foreground">{root || "No workspace selected"}</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
@@ -721,10 +688,10 @@ export default function ViewerWorkspace({
           </div>
         </header>
 
-        <main className="relative flex-1 xl:min-h-0">
-          <div className="grid md:grid-cols-[16rem_minmax(0,1fr)] xl:h-[min(44rem,calc(100vh-10rem))] xl:min-h-[30rem] xl:grid-cols-[16rem_minmax(0,1fr)_18rem] xl:items-stretch">
+        <main className="flex-1 min-h-0">
+          <div className="grid h-full md:grid-cols-[16rem_minmax(0,1fr)] xl:min-h-0 xl:grid-cols-[16rem_minmax(0,1fr)_18rem] xl:items-stretch">
               <aside className="divide-y divide-border border-b border-border py-3 md:border-b-0 md:border-r md:pr-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-3">
-                <PanelCard title="Navigation" eyebrow="Frame" icon={<Layers3 className="size-4" />}>
+                <PanelCard title="Frame">
                   <Field label="Position">
                     <AppSelect
                       value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
@@ -769,7 +736,7 @@ export default function ViewerWorkspace({
                   </Field>
                 </PanelCard>
 
-                <PanelCard title="Contrast" eyebrow="Image" icon={<Aperture className="size-4" />}>
+                <PanelCard title="Image">
                   <Field label="Minimum" hint={String(contrastMin)}>
                     <AppSlider
                       value={contrastMin}
@@ -824,75 +791,70 @@ export default function ViewerWorkspace({
               </aside>
 
               <section className="min-h-[30rem] md:min-w-0 xl:h-full xl:min-h-0">
-                <div className="relative flex h-full min-h-[30rem] flex-col overflow-hidden">
+                <div className="flex h-full min-h-[30rem] flex-col overflow-hidden">
                   <div className="border-b border-border px-3 py-2.5 md:px-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="metric-surface inline-flex items-center gap-1.5 rounded-full px-2.5 py-1">
-                          <div
-                            className={cn(
-                              "size-1.5 rounded-full",
-                              loading ? "animate-pulse bg-amber-300" : "bg-emerald-300",
-                            )}
-                          />
-                          {workspaceStatus}
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      {selection ? (
+                        <span className="truncate">
+                          P {selection.pos} · C {selection.channel} · T {selection.time} · Z {selection.z}
                         </span>
-                        {selection ? (
-                          <span className="metric-surface rounded-full px-2.5 py-1 text-[11px] text-muted-foreground">
-                            Pos {selection.pos} · Ch {selection.channel} · T {selection.time} · Z {selection.z}
-                          </span>
-                        ) : null}
-                        <span className="metric-surface rounded-full px-2.5 py-1 text-[11px] text-muted-foreground">
-                          {frameSummary}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                        <span className="metric-surface rounded-full px-2.5 py-1">
-                          {grid.enabled ? "Align mode" : "Inspect mode"}
-                        </span>
-                      </div>
+                      ) : null}
+                      <span>{frameSummary}</span>
+                      {grid.enabled ? <span>Grid on</span> : null}
                     </div>
                   </div>
 
-                  <div
-                    className="relative min-h-[26rem] flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--primary)_8%,transparent),transparent_35%)]"
-                    ref={viewportRef}
-                  >
-                    <canvas
-                      ref={canvasRef}
-                      className={cn(
-                        "block h-full w-full",
-                        grid.enabled ? "cursor-grab active:cursor-grabbing" : "cursor-default",
-                      )}
-                      onPointerDown={beginDrag}
-                      onPointerMove={moveDrag}
-                      onPointerUp={endDrag}
-                      onPointerCancel={endDrag}
-                      onContextMenu={(event) => event.preventDefault()}
-                    />
+                  <Card className="m-3 flex min-h-[26rem] flex-1 overflow-hidden rounded-xl md:m-4 md:mt-3">
+                    <div ref={stageRef} className="flex h-full w-full items-center justify-center p-3 md:p-4">
+                      <div
+                        ref={viewportRef}
+                        className="relative shrink-0 overflow-hidden bg-background"
+                        style={
+                          viewportSize > 0
+                            ? {
+                                width: `${viewportSize}px`,
+                                height: `${viewportSize}px`,
+                              }
+                            : undefined
+                        }
+                      >
+                        <canvas
+                          ref={canvasRef}
+                          className={cn(
+                            "block h-full w-full",
+                            grid.enabled ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+                          )}
+                          onPointerDown={beginDrag}
+                          onPointerMove={moveDrag}
+                          onPointerUp={endDrag}
+                          onPointerCancel={endDrag}
+                          onContextMenu={(event) => event.preventDefault()}
+                        />
 
-                    <div className="pointer-events-none absolute left-3 top-3 flex max-w-[78%] flex-wrap gap-1.5">
-                      {error ? (
-                        <div className="overlay-surface rounded-xl border-destructive/25 px-3 py-2 text-sm text-destructive">
-                          {error}
+                        <div className="pointer-events-none absolute left-3 top-3 flex max-w-[78%] flex-wrap gap-1.5">
+                          {error ? (
+                            <div className="rounded-lg border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive">
+                              {error}
+                            </div>
+                          ) : null}
+                          {!root ? (
+                            <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                              No workspace selected. Open a workspace to start.
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                      {!root ? (
-                        <div className="overlay-surface rounded-xl px-3 py-2 text-sm text-muted-foreground">
-                          No workspace selected. Use “Open Workspace” to start.
-                        </div>
-                      ) : null}
+                      </div>
                     </div>
-                  </div>
+                  </Card>
                 </div>
               </section>
 
               <aside className="divide-y divide-border border-t border-border py-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:border-t-0 xl:border-l xl:pl-3">
-                <PanelCard title="Grid" eyebrow="Overlay" icon={<Grid3X3 className="size-4" />}>
-                  <div className="metric-surface flex items-center justify-between gap-3 rounded-xl px-3 py-2.5">
+                <PanelCard title="Grid">
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground">Align grid</div>
-                      <p className="truncate text-xs text-muted-foreground">Drag on the image when enabled.</p>
+                      <div className="text-sm font-medium text-foreground">Enable grid</div>
+                      <p className="truncate text-xs text-muted-foreground">Drag on the image to reposition.</p>
                     </div>
                     <Switch
                       checked={grid.enabled}
