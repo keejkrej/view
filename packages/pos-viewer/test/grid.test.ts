@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyGridWheelGesture,
   autoContrast,
+  classifyGridWheelGesture,
   createDefaultGrid,
+  degreesToRadians,
   estimateGridDraw,
   getFrameContrastDomain,
   gridBasis,
+  normalizeRadians,
   normalizeGridState,
 } from "../src/utils";
 
@@ -60,5 +64,110 @@ describe("grid utils", () => {
     const grid = createDefaultGrid();
     expect(grid.shape).toBe("square");
     expect(grid.cellWidth).toBeGreaterThan(0);
+  });
+
+  test("classifies mouse wheel as size scaling", () => {
+    expect(
+      classifyGridWheelGesture({
+        deltaMode: 1,
+        deltaX: 0,
+        deltaY: 1,
+        ctrlKey: false,
+        shiftKey: true,
+      }),
+    ).toBe("size");
+  });
+
+  test("maps pinch to size scaling", () => {
+    const grid = createDefaultGrid();
+    const next = applyGridWheelGesture(
+      grid,
+      {
+        deltaMode: 0,
+        deltaX: 0,
+        deltaY: -40,
+        ctrlKey: true,
+        shiftKey: false,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 400,
+        modelWidth: 200,
+        modelHeight: 200,
+      },
+    );
+
+    expect(next.cellWidth).toBeGreaterThan(grid.cellWidth);
+    expect(next.cellHeight).toBeGreaterThan(grid.cellHeight);
+    expect(next.spacingA).toBe(grid.spacingA);
+  });
+
+  test("maps shift pinch to spacing scaling", () => {
+    const grid = createDefaultGrid();
+    const next = applyGridWheelGesture(
+      grid,
+      {
+        deltaMode: 0,
+        deltaX: 0,
+        deltaY: -40,
+        ctrlKey: true,
+        shiftKey: true,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 400,
+        modelWidth: 200,
+        modelHeight: 200,
+      },
+    );
+
+    expect(next.spacingA).toBeGreaterThan(grid.spacingA);
+    expect(next.spacingB).toBeGreaterThan(grid.spacingB);
+    expect(next.cellWidth).toBe(grid.cellWidth);
+  });
+
+  test("maps touchpad scroll to pan", () => {
+    const grid = createDefaultGrid();
+    const next = applyGridWheelGesture(
+      grid,
+      {
+        deltaMode: 0,
+        deltaX: 12.5,
+        deltaY: -24,
+        ctrlKey: false,
+        shiftKey: false,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 200,
+        modelWidth: 200,
+        modelHeight: 100,
+      },
+    );
+
+    expect(next.tx).toBeCloseTo(6.25);
+    expect(next.ty).toBeCloseTo(-12);
+  });
+
+  test("maps shift touchpad scroll to rotation", () => {
+    const grid = createDefaultGrid();
+    const next = applyGridWheelGesture(
+      grid,
+      {
+        deltaMode: 0,
+        deltaX: 0,
+        deltaY: 40,
+        ctrlKey: false,
+        shiftKey: true,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 400,
+        modelWidth: 200,
+        modelHeight: 200,
+      },
+    );
+
+    expect(next.rotation).toBeCloseTo(normalizeRadians(degreesToRadians(22)));
   });
 });

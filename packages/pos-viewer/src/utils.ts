@@ -2,9 +2,46 @@ import type { FrameResult, GridShape, GridState, PixelArray, PixelType, ViewerSe
 
 export const MAX_GRID_RECTS = 8000;
 const SAMPLE_SIZE = 2048;
+const LINE_DELTA_PX = 16;
+const PAGE_DELTA_PX = 320;
+const TOUCHPAD_STEP_THRESHOLD_PX = 48;
+const EXP_SCALE_FACTOR = 0.0015;
+
+export interface GridWheelGestureInput {
+  deltaMode: number;
+  deltaX: number;
+  deltaY: number;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}
+
+export interface GridWheelViewport {
+  displayWidth: number;
+  displayHeight: number;
+  modelWidth: number;
+  modelHeight: number;
+}
+
+export type GridWheelIntent = "pan" | "rotate" | "size" | "spacing";
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeWheelDelta(value: number, deltaMode: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (deltaMode === 1) return value * LINE_DELTA_PX;
+  if (deltaMode === 2) return value * PAGE_DELTA_PX;
+  return value;
+}
+
+function hasFractionalWheelDelta(value: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  return Math.abs(value - Math.trunc(value)) > 0.001;
+}
+
+function scaleFactorFromDelta(delta: number): number {
+  return Math.exp(-delta * EXP_SCALE_FACTOR);
 }
 
 export function createDefaultGrid(): GridState {
@@ -169,6 +206,87 @@ export function radiansToDegrees(value: number): number {
 
 export function degreesToRadians(value: number): number {
   return (value * Math.PI) / 180;
+}
+
+export function normalizeRadians(value: number): number {
+  const normalized = ((value + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
+export function isTouchpadLikeGridWheelGesture(gesture: GridWheelGestureInput): boolean {
+  if (gesture.deltaMode !== 0) return false;
+
+  const absDeltaX = Math.abs(normalizeWheelDelta(gesture.deltaX, gesture.deltaMode));
+  const absDeltaY = Math.abs(normalizeWheelDelta(gesture.deltaY, gesture.deltaMode));
+
+  if (absDeltaX > 0) return true;
+  if (hasFractionalWheelDelta(gesture.deltaX) || hasFractionalWheelDelta(gesture.deltaY)) return true;
+  if (absDeltaY > 0 && absDeltaY < TOUCHPAD_STEP_THRESHOLD_PX) return true;
+  return false;
+}
+
+export function classifyGridWheelGesture(gesture: GridWheelGestureInput): GridWheelIntent {
+  if (gesture.ctrlKey) {
+    return gesture.shiftKey ? "spacing" : "size";
+  }
+  if (isTouchpadLikeGridWheelGesture(gesture)) {
+    return gesture.shiftKey ? "rotate" : "pan";
+  }
+  return "size";
+}
+
+export function applyGridWheelGesture(
+  grid: GridState,
+  gesture: GridWheelGestureInput,
+  viewport: GridWheelViewport,
+): GridState {
+  const intent = classifyGridWheelGesture(gesture);
+  const deltaX = normalizeWheelDelta(gesture.deltaX, gesture.deltaMode);
+  const deltaY = normalizeWheelDelta(gesture.deltaY, gesture.deltaMode);
+
+  if (intent === "pan") {
+    const sx =
+      viewport.displayWidth > 0 && viewport.modelWidth > 0
+        ? viewport.displayWidth / viewport.modelWidth
+        : 1;
+    const sy =
+      viewport.displayHeight > 0 && viewport.modelHeight > 0
+        ? viewport.displayHeight / viewport.modelHeight
+        : 1;
+    const invSx = sx > 0 ? 1 / sx : 1;
+    const invSy = sy > 0 ? 1 / sy : 1;
+
+    return {
+      ...grid,
+      tx: grid.tx + deltaX * invSx,
+      ty: grid.ty + deltaY * invSy,
+    };
+  }
+
+  if (intent === "rotate") {
+    const primaryDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+    const deltaRadians = degreesToRadians((primaryDelta / Math.max(1, viewport.displayWidth)) * 220);
+    return {
+      ...grid,
+      rotation: normalizeRadians(grid.rotation + deltaRadians),
+    };
+  }
+
+  if (intent === "spacing") {
+    const factor = scaleFactorFromDelta(deltaY);
+    return normalizeGridState({
+      ...grid,
+      spacingA: grid.spacingA * factor,
+      spacingB: grid.spacingB * factor,
+    });
+  }
+
+  const factor = scaleFactorFromDelta(deltaY);
+  return normalizeGridState({
+    ...grid,
+    cellWidth: grid.cellWidth * factor,
+    cellHeight: grid.cellHeight * factor,
+  });
 }
 
 export function makeFrameKey(root: string, selection: ViewerSelection): string {

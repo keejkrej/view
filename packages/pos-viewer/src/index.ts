@@ -13,7 +13,9 @@ export type {
   WorkspaceScan,
 } from "./types";
 export {
+  applyGridWheelGesture,
   autoContrast,
+  classifyGridWheelGesture,
   clamp,
   coerceSelection,
   createDefaultGrid,
@@ -22,7 +24,9 @@ export {
   estimateGridDraw,
   getFrameContrastDomain,
   gridBasis,
+  isTouchpadLikeGridWheelGesture,
   makeFrameKey,
+  normalizeRadians,
   normalizeGridState,
   radiansToDegrees,
 } from "./utils";

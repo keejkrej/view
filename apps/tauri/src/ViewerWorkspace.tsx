@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import {
+  applyGridWheelGesture,
   autoContrast,
   clamp,
   coerceSelection,
@@ -23,6 +24,7 @@ import {
   getFrameContrastDomain,
   gridBasis,
   makeFrameKey,
+  normalizeRadians,
   normalizeGridState,
   radiansToDegrees,
   type FrameResult,
@@ -42,7 +44,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select";
-import { Switch } from "./components/ui/switch";
 import { cn } from "./lib/utils";
 
 type SelectValue = number | string;
@@ -191,15 +192,18 @@ function drawGridOverlay(
 
 function PanelCard({
   title,
+  action,
   children,
 }: {
   title: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="space-y-3 py-4 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-medium text-foreground">{title}</h2>
+        {action}
       </div>
       <div className="space-y-3">{children}</div>
     </section>
@@ -333,21 +337,27 @@ export default function ViewerWorkspace({
   onClearWorkspace,
 }: ViewerWorkspaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const frameCacheRef = useRef(new FrameCache());
   const renderRafRef = useRef<number | null>(null);
   const latestFrameRef = useRef<{ frame: FrameResult; prepared: HTMLCanvasElement } | null>(null);
   const latestGridRef = useRef<GridState>(normalizeGridState(initialGrid));
   const previewGridRef = useRef<GridState | null>(null);
+  const contrastMinRef = useRef(0);
+  const contrastMaxRef = useRef(1);
+  const autoContrastPendingRef = useRef(true);
   const dprRef = useRef(1);
   const dragRef = useRef<
     | null
     | {
+        mode: "pan" | "rotate" | "spacing";
         startX: number;
         startY: number;
         startTx: number;
         startTy: number;
+        startRotation: number;
+        startSpacingA: number;
+        startSpacingB: number;
       }
   >(null);
 
@@ -360,8 +370,8 @@ export default function ViewerWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [contrastMin, setContrastMin] = useState(0);
   const [contrastMax, setContrastMax] = useState(1);
+  const [autoContrastPending, setAutoContrastPending] = useState(true);
   const [timeSliderIndex, setTimeSliderIndex] = useState(0);
-  const [viewportSize, setViewportSize] = useState(0);
 
   const queueRender = useCallback(() => {
     if (renderRafRef.current != null) return;
@@ -434,6 +444,15 @@ export default function ViewerWorkspace({
   }, [grid]);
 
   useEffect(() => {
+    contrastMinRef.current = contrastMin;
+    contrastMaxRef.current = contrastMax;
+  }, [contrastMax, contrastMin]);
+
+  useEffect(() => {
+    autoContrastPendingRef.current = autoContrastPending;
+  }, [autoContrastPending]);
+
+  useEffect(() => {
     onGridChange?.(grid);
   }, [grid, onGridChange]);
 
@@ -445,6 +464,7 @@ export default function ViewerWorkspace({
       setPreparedFrame(null);
       setScan(null);
       setSelection(null);
+      setAutoContrastPending(true);
       return;
     }
 
@@ -454,6 +474,7 @@ export default function ViewerWorkspace({
     setFrame(null);
     setScan(null);
     setSelection(null);
+    setAutoContrastPending(true);
 
     void (async () => {
       try {
@@ -477,14 +498,30 @@ export default function ViewerWorkspace({
   useEffect(() => {
     if (!root || !selection) return;
     const key = makeFrameKey(root, selection);
+    const applyContrastForFrame = (nextFrame: FrameResult) => {
+      if (autoContrastPendingRef.current) {
+        const autoWindow = autoContrast(nextFrame.pixels);
+        const nextContrast = clampContrastWindow(nextFrame, autoWindow.min, autoWindow.max);
+        setContrastMin(nextContrast.min);
+        setContrastMax(nextContrast.max);
+        setAutoContrastPending(false);
+        return;
+      }
+
+      const nextContrast = clampContrastWindow(
+        nextFrame,
+        contrastMinRef.current,
+        contrastMaxRef.current,
+      );
+      setContrastMin(nextContrast.min);
+      setContrastMax(nextContrast.max);
+    };
+
     const cached = frameCacheRef.current.get(key);
     if (cached) {
       setFrame(cached.frame);
       setError(null);
-      const autoWindow = autoContrast(cached.frame.pixels);
-      const nextContrast = clampContrastWindow(cached.frame, autoWindow.min, autoWindow.max);
-      setContrastMin(nextContrast.min);
-      setContrastMax(nextContrast.max);
+      applyContrastForFrame(cached.frame);
       return;
     }
 
@@ -495,10 +532,7 @@ export default function ViewerWorkspace({
       try {
         const loaded = await dataSource.loadFrame(root, selection);
         if (cancelled) return;
-        const autoWindow = autoContrast(loaded.pixels);
-        const nextContrast = clampContrastWindow(loaded, autoWindow.min, autoWindow.max);
-        setContrastMin(nextContrast.min);
-        setContrastMax(nextContrast.max);
+        applyContrastForFrame(loaded);
         frameCacheRef.current.set(key, { frame: loaded });
         setFrame(loaded);
       } catch (nextError) {
@@ -519,20 +553,6 @@ export default function ViewerWorkspace({
     if (!frame) return;
     setPreparedFrame(prepareFrameCanvas(frame, contrastMin, contrastMax));
   }, [frame, contrastMin, contrastMax]);
-
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const resize = () => {
-      setViewportSize(Math.max(1, Math.min(stage.clientWidth, stage.clientHeight)));
-    };
-
-    const observer = new ResizeObserver(resize);
-    observer.observe(stage);
-    resize();
-    return () => observer.disconnect();
-  }, []);
 
   useLayoutEffect(() => {
     const view = viewportRef.current;
@@ -568,15 +588,29 @@ export default function ViewerWorkspace({
   const beginDrag = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
       if (!frame || !grid.enabled) return;
+      let mode: "pan" | "rotate" | "spacing" | null = null;
+      if (event.button === 0) {
+        mode = "pan";
+      } else if (event.button === 1) {
+        mode = "spacing";
+      } else if (event.button === 2) {
+        mode = "rotate";
+      }
+      if (!mode) return;
       dragRef.current = {
+        mode,
         startX: event.clientX,
         startY: event.clientY,
         startTx: grid.tx,
         startTy: grid.ty,
+        startRotation: grid.rotation,
+        startSpacingA: grid.spacingA,
+        startSpacingB: grid.spacingB,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
     },
-    [frame, grid.enabled, grid.tx, grid.ty],
+    [frame, grid.enabled, grid.rotation, grid.spacingA, grid.spacingB, grid.tx, grid.ty],
   );
 
   const moveDrag = useCallback(
@@ -588,11 +622,27 @@ export default function ViewerWorkspace({
       const scale = Math.min(view.clientWidth / cached.frame.width, view.clientHeight / cached.frame.height);
       const deltaX = event.clientX - drag.startX;
       const deltaY = event.clientY - drag.startY;
-      previewGridRef.current = {
-        ...latestGridRef.current,
-        tx: drag.startTx + deltaX / scale,
-        ty: drag.startTy + deltaY / scale,
-      };
+      if (drag.mode === "pan") {
+        previewGridRef.current = {
+          ...latestGridRef.current,
+          tx: drag.startTx + deltaX / scale,
+          ty: drag.startTy + deltaY / scale,
+        };
+      } else if (drag.mode === "rotate") {
+        previewGridRef.current = {
+          ...latestGridRef.current,
+          rotation: normalizeRadians(
+            drag.startRotation + degreesToRadians((deltaX / Math.max(1, view.clientWidth)) * 220),
+          ),
+        };
+      } else {
+        const factor = Math.max(0.01, 1 + (deltaX / Math.max(1, view.clientWidth)) * 2.5);
+        previewGridRef.current = normalizeGridState({
+          ...latestGridRef.current,
+          spacingA: drag.startSpacingA * factor,
+          spacingB: drag.startSpacingB * factor,
+        });
+      }
       queueRender();
     },
     [queueRender],
@@ -613,6 +663,35 @@ export default function ViewerWorkspace({
       }
     },
     [queueRender],
+  );
+
+  const handleWheel = useCallback(
+    (event: React.WheelEvent<HTMLCanvasElement>) => {
+      if (!frame || !grid.enabled) return;
+      event.preventDefault();
+      const view = viewportRef.current;
+      const displayWidth = view?.clientWidth ?? frame.width;
+      const displayHeight = view?.clientHeight ?? frame.height;
+      const nextGrid = applyGridWheelGesture(
+        latestGridRef.current,
+        {
+          deltaMode: event.deltaMode,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+        },
+        {
+          displayWidth,
+          displayHeight,
+          modelWidth: frame.width,
+          modelHeight: frame.height,
+        },
+      );
+      previewGridRef.current = null;
+      setGrid(nextGrid);
+    },
+    [frame, grid.enabled],
   );
 
   const hasScan = !!scan && scan.positions.length > 0;
@@ -648,28 +727,14 @@ export default function ViewerWorkspace({
   }, [selectedTimeIndex]);
 
   const workspaceName = root ? workspaceNameFromPath(root) : "Pos Viewer";
-  const dims = frame ? `${frame.width} x ${frame.height}` : "No frame";
   const workspaceStatus = loading ? "Scanning" : hasScan ? "Ready" : "No workspace";
-  const frameSummary = loading ? "Loading frame" : frame ? dims : "No frame";
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen max-w-[1720px] flex-col px-3 py-3 md:px-4 md:py-4">
-        <header className="border-b border-border px-3 py-3 md:px-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg font-medium text-foreground md:text-xl">
-                  {workspaceName}
-                </h1>
-                <span className="rounded-sm border border-border bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {workspaceStatus}
-                </span>
-              </div>
-              <p className="truncate text-xs text-muted-foreground">{root || "No workspace selected"}</p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+    <div className="h-screen overflow-hidden bg-background text-foreground">
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="border-b border-border px-4 py-4 md:px-8">
+          <div className="relative flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" onClick={() => void onOpenWorkspace()}>
                 <span className="inline-flex items-center gap-2">
                   <FolderOpen className="size-4" />
@@ -685,13 +750,17 @@ export default function ViewerWorkspace({
                 </Button>
               ) : null}
             </div>
+
+            <p className="pointer-events-none absolute left-1/2 max-w-[min(60vw,48rem)] -translate-x-1/2 truncate text-center text-sm text-muted-foreground">
+              {root || "No workspace selected"}
+            </p>
           </div>
         </header>
 
-        <main className="flex-1 min-h-0">
-          <div className="grid h-full md:grid-cols-[16rem_minmax(0,1fr)] xl:min-h-0 xl:grid-cols-[16rem_minmax(0,1fr)_18rem] xl:items-stretch">
-              <aside className="divide-y divide-border border-b border-border py-3 md:border-b-0 md:border-r md:pr-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-3">
-                <PanelCard title="Frame">
+        <main className="flex-1 min-h-0 overflow-hidden">
+          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_16rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_18rem]">
+              <aside className="divide-y divide-border border-b border-border px-4 py-3 md:border-b-0 md:border-r lg:h-full lg:min-h-0 lg:overflow-y-auto xl:px-5">
+                <PanelCard title="Image">
                   <Field label="Position">
                     <AppSelect
                       value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
@@ -736,7 +805,27 @@ export default function ViewerWorkspace({
                   </Field>
                 </PanelCard>
 
-                <PanelCard title="Image">
+                <PanelCard
+                  title="Contrast"
+                  action={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!frame}
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => {
+                        if (!frame) return;
+                        const autoWindow = autoContrast(frame.pixels);
+                        const next = clampContrastWindow(frame, autoWindow.min, autoWindow.max);
+                        setContrastMin(next.min);
+                        setContrastMax(next.max);
+                        setAutoContrastPending(false);
+                      }}
+                    >
+                      Auto
+                    </Button>
+                  }
+                >
                   <Field label="Minimum" hint={String(contrastMin)}>
                     <AppSlider
                       value={contrastMin}
@@ -773,50 +862,16 @@ export default function ViewerWorkspace({
                       }
                     />
                   </Field>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!frame}
-                    onClick={() => {
-                      if (!frame) return;
-                      const autoWindow = autoContrast(frame.pixels);
-                      const next = clampContrastWindow(frame, autoWindow.min, autoWindow.max);
-                      setContrastMin(next.min);
-                      setContrastMax(next.max);
-                    }}
-                  >
-                    Auto contrast
-                  </Button>
                 </PanelCard>
               </aside>
 
-              <section className="min-h-[30rem] md:min-w-0 xl:h-full xl:min-h-0">
-                <div className="flex h-full min-h-[30rem] flex-col overflow-hidden">
-                  <div className="border-b border-border px-3 py-2.5 md:px-4">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      {selection ? (
-                        <span className="truncate">
-                          P {selection.pos} · C {selection.channel} · T {selection.time} · Z {selection.z}
-                        </span>
-                      ) : null}
-                      <span>{frameSummary}</span>
-                      {grid.enabled ? <span>Grid on</span> : null}
-                    </div>
-                  </div>
-
-                  <Card className="m-3 flex min-h-[26rem] flex-1 overflow-hidden rounded-xl md:m-4 md:mt-3">
-                    <div ref={stageRef} className="flex h-full w-full items-center justify-center p-3 md:p-4">
+              <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  <div className="m-3 flex min-h-0 flex-1 overflow-hidden md:m-4 md:mt-3">
+                    <div className="flex min-h-0 h-full w-full flex-1">
                       <div
                         ref={viewportRef}
-                        className="relative shrink-0 overflow-hidden bg-background"
-                        style={
-                          viewportSize > 0
-                            ? {
-                                width: `${viewportSize}px`,
-                                height: `${viewportSize}px`,
-                              }
-                            : undefined
-                        }
+                        className="relative min-h-0 h-full w-full flex-1 overflow-hidden bg-transparent"
                       >
                         <canvas
                           ref={canvasRef}
@@ -825,11 +880,12 @@ export default function ViewerWorkspace({
                             grid.enabled ? "cursor-grab active:cursor-grabbing" : "cursor-default",
                           )}
                           onPointerDown={beginDrag}
-                          onPointerMove={moveDrag}
-                          onPointerUp={endDrag}
-                          onPointerCancel={endDrag}
-                          onContextMenu={(event) => event.preventDefault()}
-                        />
+                        onPointerMove={moveDrag}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                        onWheel={handleWheel}
+                        onContextMenu={(event) => event.preventDefault()}
+                      />
 
                         <div className="pointer-events-none absolute left-3 top-3 flex max-w-[78%] flex-wrap gap-1.5">
                           {error ? (
@@ -845,23 +901,43 @@ export default function ViewerWorkspace({
                         </div>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 </div>
               </section>
 
-              <aside className="divide-y divide-border border-t border-border py-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:border-t-0 xl:border-l xl:pl-3">
-                <PanelCard title="Grid">
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground">Enable grid</div>
-                      <p className="truncate text-xs text-muted-foreground">Drag on the image to reposition.</p>
+              <aside className="divide-y divide-border border-t border-border px-4 py-3 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l xl:px-5">
+                <PanelCard
+                  title="Grid"
+                  action={
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2.5 text-xs"
+                        disabled={controlsDisabled}
+                        onClick={() =>
+                          setGrid((current) => ({
+                            ...createDefaultGrid(),
+                            enabled: current.enabled,
+                          }))
+                        }
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={grid.enabled ? "default" : "outline"}
+                        className="h-7 min-w-12 px-2.5 text-xs"
+                        disabled={controlsDisabled}
+                        onClick={() =>
+                          setGrid((current) => ({ ...current, enabled: !current.enabled }))
+                        }
+                      >
+                        {grid.enabled ? "On" : "Off"}
+                      </Button>
                     </div>
-                    <Switch
-                      checked={grid.enabled}
-                      disabled={controlsDisabled}
-                      onCheckedChange={(checked) => setGrid((current) => ({ ...current, enabled: checked }))}
-                    />
-                  </div>
+                  }
+                >
 
                   <Field label="Shape">
                     <AppSelect
@@ -978,9 +1054,6 @@ export default function ViewerWorkspace({
                     />
                   </Field>
 
-                  <Button size="sm" variant="outline" disabled={controlsDisabled} onClick={() => setGrid(createDefaultGrid())}>
-                    Reset grid
-                  </Button>
                 </PanelCard>
               </aside>
             </div>
