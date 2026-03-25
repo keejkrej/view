@@ -1,53 +1,98 @@
+@import "tailwindcss";
+
 :root {
-  color-scheme: light;
-  font-family: "Segoe UI", sans-serif;
-  background: #f7f6f2;
-  color: #181814;
+  color-scheme: dark;
+  --background: #050a14;
+  --foreground: #f3f7ff;
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --muted: rgba(255, 255, 255, 0.58);
 }
 
-html,
-body,
-#root {
-  margin: 0;
-  height: 100%;
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    height: 100%;
+    width: 100%;
+  }
+
+  html {
+    background: var(--background);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 22%),
+      radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.16), transparent 24%),
+      linear-gradient(140deg, #020611 0%, #09111d 42%, #13213b 100%);
+    color: var(--foreground);
+    font-family:
+      "Avenir Next",
+      "Segoe UI Variable",
+      "Segoe UI",
+      "Helvetica Neue",
+      sans-serif;
+    font-synthesis: none;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.028;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 256px 256px;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  code,
+  input[type="number"] {
+    font-family:
+      "SF Mono",
+      "IBM Plex Mono",
+      "SFMono-Regular",
+      Menlo,
+      Consolas,
+      monospace;
+  }
 }
 
-body {
-  background:
-    radial-gradient(circle at top left, rgba(84, 84, 76, 0.08), transparent 24%),
-    linear-gradient(180deg, #faf8f3, #f1eee6 78%);
-}
+@layer utilities {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
 
-.app-shell {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100%;
-}
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-.app-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid rgba(84, 84, 76, 0.12);
-  background: rgba(250, 248, 243, 0.88);
-  backdrop-filter: blur(12px);
-}
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+  }
 
-.app-main {
-  min-height: 0;
-}
-
-.app-main > * {
-  height: 100%;
-}
-
-.app-empty {
-  height: 100%;
-  display: grid;
-  place-content: center;
-  padding: 32px;
-  text-align: center;
-  background: rgba(255, 255, 255, 0.45);
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
 }

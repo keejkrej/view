@@ -1,6 +1,5 @@
 import "./styles.css";
 
-export { PosViewer } from "./PosViewer";
 export type {
   FrameRequest,
   PixelArray,
@@ -13,4 +12,17 @@ export type {
   ViewerSelection,
   WorkspaceScan,
 } from "./types";
-export { createDefaultGrid, getFrameContrastDomain, normalizeGridState } from "./utils";
+export {
+  autoContrast,
+  clamp,
+  coerceSelection,
+  createDefaultGrid,
+  createSelection,
+  degreesToRadians,
+  estimateGridDraw,
+  getFrameContrastDomain,
+  gridBasis,
+  makeFrameKey,
+  normalizeGridState,
+  radiansToDegrees,
+} from "./utils";
