@@ -1,22 +1,15 @@
-import {
-  Select,
-  Slider,
-  Switch,
-} from "@base-ui/react";
+import { Slider } from "@base-ui/react";
 import {
   Aperture,
-  ChevronDown,
   FolderOpen,
   Grid3X3,
   Hexagon,
   Layers3,
   LoaderCircle,
   ScanSearch,
-  SlidersHorizontal,
   X,
 } from "lucide-react";
 import {
-  type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -45,6 +38,18 @@ import {
   type ViewerSelection,
   type WorkspaceScan,
 } from "@view/pos-viewer";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Input } from "./components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/ui/select";
+import { Switch } from "./components/ui/switch";
+import { cn } from "./lib/utils";
 
 type SelectValue = number | string;
 
@@ -95,10 +100,6 @@ class FrameCache {
       this.map.delete(first);
     }
   }
-}
-
-function cn(...values: Array<string | false | null | undefined>) {
-  return values.filter(Boolean).join(" ");
 }
 
 function workspaceNameFromPath(root: string) {
@@ -206,28 +207,30 @@ function PanelCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[1.4rem] border border-white/10 bg-white/6 p-4 shadow-[0_20px_80px_rgba(0,0,0,0.16)] backdrop-blur-xl">
-      <div className="mb-4 flex items-start justify-between gap-3">
+    <Card className="panel-surface overflow-hidden rounded-[24px] shadow-none">
+      <CardHeader className="mb-0 flex-row items-start justify-between gap-3 border-b border-white/6 p-4 pb-3">
         <div>
           {eyebrow ? (
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-white/45">
+            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="mt-1 text-sm font-semibold text-white">{title}</h2>
+          <CardTitle className="mt-1 text-[0.95rem] leading-none">{title}</CardTitle>
         </div>
-        {icon ? <div className="text-white/45">{icon}</div> : null}
-      </div>
-      <div className="space-y-4">{children}</div>
-    </section>
+        {icon ? (
+          <div className="metric-surface rounded-xl p-2 text-muted-foreground">{icon}</div>
+        ) : null}
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 pt-4">{children}</CardContent>
+    </Card>
   );
 }
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-black/15 px-3 py-2">
-      <div className="text-[0.66rem] uppercase tracking-[0.22em] text-white/40">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-white">{value}</div>
+    <div className="metric-surface rounded-2xl px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -242,10 +245,12 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between gap-4">
-        <label className="text-[0.76rem] font-medium tracking-[0.02em] text-white/82">{label}</label>
-        {hint ? <span className="text-[0.72rem] text-white/42">{hint}</span> : null}
+        <label className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          {label}
+        </label>
+        {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
       </div>
       {children}
     </div>
@@ -264,42 +269,15 @@ function NumberInput({
   step?: string;
 }) {
   return (
-    <input
+    <Input
       type="number"
+      size="sm"
       step={step}
       value={Number.isFinite(value) ? String(value) : ""}
       disabled={disabled}
       onChange={(event) => onChange(Number(event.target.value))}
-      className="h-11 w-full rounded-2xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none transition placeholder:text-white/20 focus:border-sky-400/65 disabled:cursor-not-allowed disabled:opacity-45"
+      className="text-sm"
     />
-  );
-}
-
-function ActionButton({
-  children,
-  onClick,
-  disabled,
-  variant = "primary",
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "ghost";
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "inline-flex h-11 items-center justify-center rounded-2xl px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-45",
-        variant === "primary"
-          ? "bg-white text-slate-950 shadow-[0_10px_40px_rgba(255,255,255,0.18)] hover:bg-slate-100"
-          : "border border-white/12 bg-white/6 text-white hover:bg-white/10",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -315,32 +293,24 @@ function AppSelect<T extends SelectValue>({
   disabled?: boolean;
 }) {
   return (
-    <Select.Root<T> value={value} onValueChange={(next) => next != null && onChange(next)} items={options} disabled={disabled} modal={false}>
-      <Select.Trigger className="inline-flex h-11 w-full items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-3 text-left text-sm text-white outline-none transition focus:border-sky-400/65 disabled:cursor-not-allowed disabled:opacity-45">
-        <Select.Value />
-        <Select.Icon className="text-white/45">
-          <ChevronDown className="size-4" />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Positioner className="z-50">
-          <Select.Popup className="max-h-72 overflow-auto rounded-2xl border border-white/12 bg-[#101726] p-1 shadow-[0_28px_90px_rgba(0,0,0,0.45)] outline-none backdrop-blur-xl">
-            <Select.List className="outline-none">
-              {options.map((option) => (
-                <Select.Item
-                  key={String(option.value)}
-                  value={option.value}
-                  className="flex cursor-default items-center justify-between rounded-xl px-3 py-2 text-sm text-white/78 outline-none transition data-[highlighted]:bg-white/10 data-[selected]:text-white"
-                >
-                  <Select.ItemText>{option.label}</Select.ItemText>
-                  <Select.ItemIndicator className="text-sky-300">•</Select.ItemIndicator>
-                </Select.Item>
-              ))}
-            </Select.List>
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
+    <Select<T>
+      value={value}
+      onValueChange={(next) => next != null && onChange(next)}
+      items={options}
+      disabled={disabled}
+      modal={false}
+    >
+      <SelectTrigger size="sm" className="text-sm">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={String(option.value)} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -370,36 +340,15 @@ function AppSlider({
       disabled={disabled}
       onValueChange={onChange}
       onValueCommitted={onCommit}
-      className="flex h-8 items-center"
+      className="flex h-7 items-center"
     >
-      <Slider.Control className="relative h-2.5 w-full rounded-full bg-white/10">
+      <Slider.Control className="relative h-1.5 w-full rounded-full bg-white/8">
         <Slider.Track className="relative h-full rounded-full">
-          <Slider.Indicator className="absolute h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-300" />
+          <Slider.Indicator className="absolute h-full rounded-full bg-primary shadow-[0_0_20px_color-mix(in_srgb,var(--primary)_45%,transparent)]" />
         </Slider.Track>
-        <Slider.Thumb className="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-slate-950/30 bg-white shadow-[0_8px_30px_rgba(255,255,255,0.32)] outline-none" />
+        <Slider.Thumb className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-card shadow-[0_6px_20px_rgba(0,0,0,0.28)] outline-none ring-4 ring-background/50" />
       </Slider.Control>
     </Slider.Root>
-  );
-}
-
-function Toggle({
-  checked,
-  onCheckedChange,
-  disabled,
-}: {
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Switch.Root
-      checked={checked}
-      onCheckedChange={onCheckedChange}
-      disabled={disabled}
-      className="relative inline-flex h-7 w-12 items-center rounded-full border border-white/10 bg-white/10 p-0.5 transition data-[checked]:bg-sky-500/80 disabled:cursor-not-allowed disabled:opacity-45"
-    >
-      <Switch.Thumb className="block size-5 rounded-full bg-white shadow-sm transition-transform data-[checked]:translate-x-5" />
-    </Switch.Root>
   );
 }
 
@@ -460,13 +409,27 @@ export default function ViewerWorkspace({
       ctx.scale(dprRef.current, dprRef.current);
 
       const background = ctx.createLinearGradient(0, 0, cssWidth, cssHeight);
-      background.addColorStop(0, "#030816");
-      background.addColorStop(0.52, "#09111f");
-      background.addColorStop(1, "#14233f");
+      background.addColorStop(0, "#0f1729");
+      background.addColorStop(0.52, "#090f1d");
+      background.addColorStop(1, "#060913");
       ctx.fillStyle = background;
       ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      const glow = ctx.createRadialGradient(
+        cssWidth * 0.5,
+        cssHeight * 0.22,
+        0,
+        cssWidth * 0.5,
+        cssHeight * 0.22,
+        Math.max(cssWidth, cssHeight) * 0.7,
+      );
+      glow.addColorStop(0, "rgba(114, 92, 255, 0.18)");
+      glow.addColorStop(0.45, "rgba(56, 189, 248, 0.06)");
+      glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+      ctx.fillStyle = "rgba(255,255,255,0.035)";
       for (let x = 0; x < cssWidth; x += 24) {
         ctx.fillRect(x, 0, 1, cssHeight);
       }
@@ -480,15 +443,21 @@ export default function ViewerWorkspace({
         const drawHeight = cached.frame.height * scale;
         const drawX = (cssWidth - drawWidth) / 2;
         const drawY = (cssHeight - drawHeight) / 2;
-        ctx.fillStyle = "rgba(255,255,255,0.03)";
-        ctx.fillRect(drawX - 12, drawY - 12, drawWidth + 24, drawHeight + 24);
+        ctx.fillStyle = "rgba(148,163,184,0.08)";
+        ctx.fillRect(drawX - 14, drawY - 14, drawWidth + 28, drawHeight + 28);
+        ctx.strokeStyle = "rgba(255,255,255,0.06)";
+        ctx.strokeRect(drawX - 14.5, drawY - 14.5, drawWidth + 29, drawHeight + 29);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(cached.prepared, drawX, drawY, drawWidth, drawHeight);
         drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid);
       } else {
-        ctx.fillStyle = "rgba(255,255,255,0.72)";
-        ctx.font = "500 15px 'Avenir Next', 'Segoe UI Variable', sans-serif";
-        ctx.fillText(loading ? "Loading frame..." : "No frame loaded", 28, 42);
+        ctx.fillStyle = "rgba(226,232,240,0.72)";
+        ctx.font = "500 14px 'DM Sans', 'Segoe UI Variable', sans-serif";
+        ctx.fillText(
+          !root ? "Open a workspace to load frames" : loading ? "Loading frame..." : "No frame loaded",
+          28,
+          42,
+        );
       }
 
       ctx.restore();
@@ -522,6 +491,16 @@ export default function ViewerWorkspace({
   }, [grid, onGridChange]);
 
   useEffect(() => {
+    if (!root) {
+      setLoading(false);
+      setError(null);
+      setFrame(null);
+      setPreparedFrame(null);
+      setScan(null);
+      setSelection(null);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -707,370 +686,433 @@ export default function ViewerWorkspace({
     setTimeSliderIndex(selectedTimeIndex);
   }, [selectedTimeIndex]);
 
-  const workspaceName = workspaceNameFromPath(root);
+  const workspaceName = root ? workspaceNameFromPath(root) : "Pos Viewer";
   const dims = frame ? `${frame.width} x ${frame.height}` : "No frame";
 
   return (
-    <div className="relative flex min-h-screen flex-col text-white">
-      <header className="border-b border-white/10 px-5 py-4 backdrop-blur-xl md:px-6">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="rounded-full border border-sky-400/20 bg-sky-400/12 px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-sky-200">
-                View
-              </span>
-              <span className="text-[0.72rem] uppercase tracking-[0.24em] text-white/40">
-                Pos Workspace Viewer
-              </span>
-            </div>
-            <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-                  {workspaceName}
-                </h1>
-                <p className="mt-1 max-w-3xl text-sm text-white/55">
-                  Fixed-image alignment workspace with live grid calibration, contrast control, and fast position navigation.
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/6 px-3 py-2 text-xs text-white/50">
-                {root}
-              </div>
-            </div>
-          </div>
+    <div className="relative min-h-screen overflow-x-hidden bg-background text-foreground">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-[28rem] bg-[radial-gradient(52rem_22rem_at_top,color-mix(in_srgb,var(--primary)_16%,transparent),transparent)]" />
+        <div className="absolute -left-28 top-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute right-[-7rem] top-40 h-72 w-72 rounded-full bg-cyan-400/8 blur-3xl" />
+      </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <MetricPill label="Positions" value={String(scan?.positions.length ?? 0)} />
-            <MetricPill label="Channels" value={String(scan?.channels.length ?? 0)} />
-            <MetricPill label="Frame" value={dims} />
-            <ActionButton onClick={() => void onOpenWorkspace()}>
-              <span className="inline-flex items-center gap-2">
-                <FolderOpen className="size-4" />
-                Open Workspace
-              </span>
-            </ActionButton>
-            <ActionButton variant="ghost" onClick={onClearWorkspace}>
-              <span className="inline-flex items-center gap-2">
-                <X className="size-4" />
-                Clear
-              </span>
-            </ActionButton>
-          </div>
-        </div>
-      </header>
-
-      <main className="grid min-h-0 flex-1 gap-4 p-4 md:grid-cols-[20rem_minmax(0,1fr)] md:p-5 xl:grid-cols-[20rem_minmax(0,1fr)_22rem] xl:p-6">
-        <aside className="space-y-4 overflow-auto xl:pr-1">
-          <PanelCard title="Workspace" eyebrow="Overview" icon={<ScanSearch className="size-4" />}>
-            <div className="grid grid-cols-2 gap-3">
-              <MetricPill label="Times" value={String(scan?.times.length ?? 0)} />
-              <MetricPill label="Z slices" value={String(scan?.zSlices.length ?? 0)} />
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-black/15 p-3 text-sm text-white/62">
-              {loading
-                ? "Scanning workspace..."
-                : hasScan
-                  ? "Workspace scanned successfully. Use the controls below to navigate frames."
-                  : "Select a valid workspace with Pos directories and TIFF frames."}
-            </div>
-          </PanelCard>
-
-          <PanelCard title="Image Navigation" eyebrow="Frame" icon={<Layers3 className="size-4" />}>
-            <Field label="Position">
-              <AppSelect
-                value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
-                options={positionOptions}
-                disabled={controlsDisabled}
-                onChange={(value) => setSelectionKey("pos", value)}
-              />
-            </Field>
-            <Field label="Channel">
-              <AppSelect
-                value={selection?.channel ?? (channelOptions[0]?.value ?? 0)}
-                options={channelOptions}
-                disabled={controlsDisabled}
-                onChange={(value) => setSelectionKey("channel", value)}
-              />
-            </Field>
-            <Field label="Time" hint={String(displayedTime)}>
-              <AppSlider
-                value={timeSliderIndex}
-                min={0}
-                max={timeSliderMax}
-                step={1}
-                disabled={controlsDisabled || timeValues.length <= 1}
-                onChange={(nextIndex) => setTimeSliderIndex(clamp(Math.round(nextIndex), 0, timeSliderMax))}
-                onCommit={(nextIndex) => {
-                  const rounded = clamp(Math.round(nextIndex), 0, timeSliderMax);
-                  setTimeSliderIndex(rounded);
-                  const nextTime = timeValues[rounded];
-                  if (nextTime != null && nextTime !== selection?.time) {
-                    setSelectionKey("time", nextTime);
-                  }
-                }}
-              />
-            </Field>
-            <Field label="Z Slice">
-              <AppSelect
-                value={selection?.z ?? (zOptions[0]?.value ?? 0)}
-                options={zOptions}
-                disabled={controlsDisabled}
-                onChange={(value) => setSelectionKey("z", value)}
-              />
-            </Field>
-          </PanelCard>
-
-          <PanelCard title="Contrast" eyebrow="Image" icon={<Aperture className="size-4" />}>
-            <Field label="Minimum" hint={String(contrastMin)}>
-              <AppSlider
-                value={contrastMin}
-                min={contrastDomain.min}
-                max={contrastMinSliderMax}
-                step={1}
-                disabled={!frame}
-                onChange={(value) =>
-                  setContrastMin(
-                    clamp(
-                      Math.round(value),
-                      contrastDomain.min,
-                      Math.min(contrastMinSliderMax, contrastMax - 1),
-                    ),
-                  )
-                }
-              />
-            </Field>
-            <Field label="Maximum" hint={String(contrastMax)}>
-              <AppSlider
-                value={contrastMax}
-                min={contrastMaxSliderMin}
-                max={contrastDomain.max}
-                step={1}
-                disabled={!frame}
-                onChange={(value) =>
-                  setContrastMax(
-                    clamp(
-                      Math.round(value),
-                      Math.max(contrastMaxSliderMin, contrastMin + 1),
-                      contrastDomain.max,
-                    ),
-                  )
-                }
-              />
-            </Field>
-            <ActionButton
-              variant="ghost"
-              disabled={!frame}
-              onClick={() => {
-                if (!frame) return;
-                const autoWindow = autoContrast(frame.pixels);
-                const next = clampContrastWindow(frame, autoWindow.min, autoWindow.max);
-                setContrastMin(next.min);
-                setContrastMax(next.max);
-              }}
-            >
-              Auto contrast
-            </ActionButton>
-          </PanelCard>
-        </aside>
-
-        <section className="min-h-[30rem] xl:min-h-0">
-          <div className="relative flex h-full min-h-[30rem] flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-black/25 shadow-[0_30px_120px_rgba(0,0,0,0.4)]">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-white/72">
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/6 px-3 py-1">
-                  <div className={cn("size-2 rounded-full", loading ? "bg-amber-300 animate-pulse" : "bg-emerald-300")} />
-                  {loading ? "Loading" : "Ready"}
+      <div className="relative mx-auto flex min-h-screen max-w-[1720px] flex-col px-4 py-4 md:px-6 md:py-5">
+        <header className="shell-surface rounded-[28px] px-5 py-5 md:px-6 md:py-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="metric-surface rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-primary">
+                  View
                 </span>
-                {selection ? (
-                  <span className="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-white/55">
-                    Pos {selection.pos} · Ch {selection.channel} · T {selection.time} · Z {selection.z}
-                  </span>
-                ) : null}
+                <span className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                  Pos Workspace Viewer
+                </span>
               </div>
-              <div className="text-xs uppercase tracking-[0.2em] text-white/38">
-                {grid.enabled ? "Align mode" : "Inspect mode"}
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-end gap-3">
+                  <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground md:text-2xl">
+                    {workspaceName}
+                  </h1>
+                  <span className="metric-surface rounded-full px-3 py-1 text-[11px] text-muted-foreground">
+                    {loading ? "Scanning workspace" : hasScan ? "Workspace ready" : "No workspace loaded"}
+                  </span>
+                </div>
+                <p className="max-w-3xl text-sm text-muted-foreground">
+                  {root
+                    ? "Fixed-image alignment workspace with live grid calibration, contrast control, and fast position navigation."
+                    : "Open a workspace to browse positions, inspect TIFF frames, and align the grid overlay in the main viewer."}
+                </p>
+                <div className="metric-surface max-w-full rounded-2xl px-3 py-2 text-[11px] text-muted-foreground">
+                  <span className="block truncate font-mono">
+                    {root || "No workspace selected"}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="relative min-h-0 flex-1" ref={viewportRef}>
-              <canvas
-                ref={canvasRef}
-                className={cn("block h-full w-full", grid.enabled ? "cursor-grab active:cursor-grabbing" : "cursor-default")}
-                onPointerDown={beginDrag}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-                onContextMenu={(event) => event.preventDefault()}
-              />
-
-              <div className="pointer-events-none absolute left-4 top-4 flex max-w-[75%] flex-wrap gap-2">
-                {error ? (
-                  <div className="rounded-2xl border border-rose-300/18 bg-rose-400/12 px-4 py-3 text-sm text-rose-100 shadow-lg backdrop-blur-xl">
-                    {error}
-                  </div>
-                ) : null}
-                {!grid.enabled && frame ? (
-                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/72 backdrop-blur-xl">
-                    Enable align mode to drag the grid while the image stays fixed.
-                  </div>
-                ) : null}
+            <div className="flex flex-col gap-3 xl:min-w-[29rem] xl:max-w-[38rem] xl:items-end">
+              <div className="grid w-full gap-2 sm:grid-cols-3">
+                <MetricPill label="Positions" value={String(scan?.positions.length ?? 0)} />
+                <MetricPill label="Channels" value={String(scan?.channels.length ?? 0)} />
+                <MetricPill label="Frame" value={dims} />
               </div>
-
-              <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap items-end justify-between gap-3">
-                <div className="rounded-[1.25rem] border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/68 backdrop-blur-xl">
-                  <div className="text-[0.68rem] uppercase tracking-[0.22em] text-white/35">Frame Status</div>
-                  <div className="mt-1 flex items-center gap-2">
-                    {loading ? <LoaderCircle className="size-4 animate-spin text-sky-200" /> : null}
-                    <span>{loading ? "Loading frame..." : frame ? `${frame.width} x ${frame.height}` : "Idle"}</span>
-                  </div>
-                </div>
-
-                <div className="rounded-[1.25rem] border border-white/10 bg-black/35 px-4 py-3 text-right text-sm text-white/68 backdrop-blur-xl">
-                  <div className="text-[0.68rem] uppercase tracking-[0.22em] text-white/35">Grid</div>
-                  <div className="mt-1">
-                    {grid.shape} · {grid.cellWidth}×{grid.cellHeight} · opacity {grid.opacity.toFixed(2)}
-                  </div>
-                </div>
+              <div className="flex w-full flex-wrap items-center gap-2 xl:justify-end">
+                <Button size="sm" onClick={() => void onOpenWorkspace()}>
+                  <span className="inline-flex items-center gap-2">
+                    <FolderOpen className="size-4" />
+                    Open Workspace
+                  </span>
+                </Button>
+                {root ? (
+                  <Button size="sm" variant="outline" onClick={onClearWorkspace}>
+                    <span className="inline-flex items-center gap-2">
+                      <X className="size-4" />
+                      Clear
+                    </span>
+                  </Button>
+                ) : null}
               </div>
             </div>
           </div>
-        </section>
+        </header>
 
-        <aside className="space-y-4 overflow-auto xl:pl-1">
-          <PanelCard title="Grid Alignment" eyebrow="Overlay" icon={<Grid3X3 className="size-4" />}>
-            <div className="flex items-start justify-between gap-4 rounded-2xl border border-white/8 bg-black/15 p-3">
-              <div>
-                <div className="text-sm font-medium text-white">Align grid</div>
-                <p className="mt-1 text-sm text-white/52">
-                  Drag directly on the image canvas to move the overlay.
-                </p>
-              </div>
-              <Toggle
-                checked={grid.enabled}
-                disabled={controlsDisabled}
-                onCheckedChange={(checked) => setGrid((current) => ({ ...current, enabled: checked }))}
-              />
+        <main className="relative mt-4 flex-1">
+          <div className="shell-surface rounded-[32px] p-3 md:p-4 xl:p-5">
+            <div className="grid gap-4 md:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+              <aside className="space-y-4">
+                <PanelCard title="Workspace" eyebrow="Overview" icon={<ScanSearch className="size-4" />}>
+                  <div className="grid grid-cols-2 gap-3">
+                    <MetricPill label="Times" value={String(scan?.times.length ?? 0)} />
+                    <MetricPill label="Z slices" value={String(scan?.zSlices.length ?? 0)} />
+                  </div>
+                  <div className="metric-surface rounded-2xl px-3 py-3 text-sm text-muted-foreground">
+                    {loading
+                      ? "Scanning workspace..."
+                      : hasScan
+                        ? "Workspace scanned successfully. Use the controls below to navigate frames."
+                        : "No workspace selected. Open a valid workspace with Pos directories and TIFF frames."}
+                  </div>
+                </PanelCard>
+
+                <PanelCard title="Image Navigation" eyebrow="Frame" icon={<Layers3 className="size-4" />}>
+                  <Field label="Position">
+                    <AppSelect
+                      value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
+                      options={positionOptions}
+                      disabled={controlsDisabled}
+                      onChange={(value) => setSelectionKey("pos", value)}
+                    />
+                  </Field>
+                  <Field label="Channel">
+                    <AppSelect
+                      value={selection?.channel ?? (channelOptions[0]?.value ?? 0)}
+                      options={channelOptions}
+                      disabled={controlsDisabled}
+                      onChange={(value) => setSelectionKey("channel", value)}
+                    />
+                  </Field>
+                  <Field label="Time" hint={String(displayedTime)}>
+                    <AppSlider
+                      value={timeSliderIndex}
+                      min={0}
+                      max={timeSliderMax}
+                      step={1}
+                      disabled={controlsDisabled || timeValues.length <= 1}
+                      onChange={(nextIndex) => setTimeSliderIndex(clamp(Math.round(nextIndex), 0, timeSliderMax))}
+                      onCommit={(nextIndex) => {
+                        const rounded = clamp(Math.round(nextIndex), 0, timeSliderMax);
+                        setTimeSliderIndex(rounded);
+                        const nextTime = timeValues[rounded];
+                        if (nextTime != null && nextTime !== selection?.time) {
+                          setSelectionKey("time", nextTime);
+                        }
+                      }}
+                    />
+                  </Field>
+                  <Field label="Z Slice">
+                    <AppSelect
+                      value={selection?.z ?? (zOptions[0]?.value ?? 0)}
+                      options={zOptions}
+                      disabled={controlsDisabled}
+                      onChange={(value) => setSelectionKey("z", value)}
+                    />
+                  </Field>
+                </PanelCard>
+
+                <PanelCard title="Contrast" eyebrow="Image" icon={<Aperture className="size-4" />}>
+                  <Field label="Minimum" hint={String(contrastMin)}>
+                    <AppSlider
+                      value={contrastMin}
+                      min={contrastDomain.min}
+                      max={contrastMinSliderMax}
+                      step={1}
+                      disabled={!frame}
+                      onChange={(value) =>
+                        setContrastMin(
+                          clamp(
+                            Math.round(value),
+                            contrastDomain.min,
+                            Math.min(contrastMinSliderMax, contrastMax - 1),
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                  <Field label="Maximum" hint={String(contrastMax)}>
+                    <AppSlider
+                      value={contrastMax}
+                      min={contrastMaxSliderMin}
+                      max={contrastDomain.max}
+                      step={1}
+                      disabled={!frame}
+                      onChange={(value) =>
+                        setContrastMax(
+                          clamp(
+                            Math.round(value),
+                            Math.max(contrastMaxSliderMin, contrastMin + 1),
+                            contrastDomain.max,
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!frame}
+                    onClick={() => {
+                      if (!frame) return;
+                      const autoWindow = autoContrast(frame.pixels);
+                      const next = clampContrastWindow(frame, autoWindow.min, autoWindow.max);
+                      setContrastMin(next.min);
+                      setContrastMax(next.max);
+                    }}
+                  >
+                    Auto contrast
+                  </Button>
+                </PanelCard>
+              </aside>
+
+              <section className="min-h-[34rem]">
+                <div className="viewport-surface relative flex h-full min-h-[34rem] flex-col overflow-hidden rounded-[28px]">
+                  <div className="border-b border-white/6 px-4 py-3 md:px-5">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span className="metric-surface inline-flex items-center gap-2 rounded-full px-3 py-1">
+                          <div
+                            className={cn(
+                              "size-2 rounded-full",
+                              loading ? "animate-pulse bg-amber-300" : "bg-emerald-300",
+                            )}
+                          />
+                          {loading ? "Loading" : "Ready"}
+                        </span>
+                        {selection ? (
+                          <span className="metric-surface rounded-full px-3 py-1 text-[11px] text-muted-foreground">
+                            Pos {selection.pos} · Ch {selection.channel} · T {selection.time} · Z {selection.z}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                        <span className="metric-surface rounded-full px-3 py-1">
+                          {grid.enabled ? "Align mode" : "Inspect mode"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className="relative min-h-[30rem] flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--primary)_8%,transparent),transparent_35%)]"
+                    ref={viewportRef}
+                  >
+                    <canvas
+                      ref={canvasRef}
+                      className={cn(
+                        "block h-full w-full",
+                        grid.enabled ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+                      )}
+                      onPointerDown={beginDrag}
+                      onPointerMove={moveDrag}
+                      onPointerUp={endDrag}
+                      onPointerCancel={endDrag}
+                      onContextMenu={(event) => event.preventDefault()}
+                    />
+
+                    <div className="pointer-events-none absolute left-4 top-4 flex max-w-[78%] flex-wrap gap-2">
+                      {error ? (
+                        <div className="overlay-surface rounded-2xl border-destructive/25 px-4 py-3 text-sm text-destructive">
+                          {error}
+                        </div>
+                      ) : null}
+                      {!root ? (
+                        <div className="overlay-surface rounded-2xl px-4 py-3 text-sm text-muted-foreground">
+                          No workspace selected. Use “Open Workspace” to start.
+                        </div>
+                      ) : null}
+                      {!grid.enabled && frame ? (
+                        <div className="overlay-surface rounded-2xl px-4 py-3 text-sm text-muted-foreground">
+                          Enable align mode to drag the grid while the image stays fixed.
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap items-end justify-between gap-3">
+                      <div className="overlay-surface rounded-2xl px-4 py-3 text-sm text-muted-foreground">
+                        <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Frame Status
+                        </div>
+                        <div className="mt-1 flex items-center gap-2">
+                          {loading ? <LoaderCircle className="size-4 animate-spin text-primary" /> : null}
+                          <span>{loading ? "Loading frame..." : frame ? dims : "Idle"}</span>
+                        </div>
+                      </div>
+
+                      <div className="overlay-surface rounded-2xl px-4 py-3 text-right text-sm text-muted-foreground">
+                        <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                          Grid
+                        </div>
+                        <div className="mt-1">
+                          {grid.shape} · {grid.cellWidth}×{grid.cellHeight} · opacity {grid.opacity.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <aside className="space-y-4">
+                <PanelCard title="Grid Alignment" eyebrow="Overlay" icon={<Grid3X3 className="size-4" />}>
+                  <div className="metric-surface flex items-start justify-between gap-4 rounded-2xl px-3 py-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Align grid</div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Drag directly on the image canvas to move the overlay.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={grid.enabled}
+                      disabled={controlsDisabled}
+                      onCheckedChange={(checked) => setGrid((current) => ({ ...current, enabled: checked }))}
+                    />
+                  </div>
+
+                  <Field label="Shape">
+                    <AppSelect
+                      value={grid.shape}
+                      options={shapeOptions}
+                      disabled={controlsDisabled}
+                      onChange={(value) => setGrid((current) => ({ ...current, shape: value }))}
+                    />
+                  </Field>
+
+                  <Field label="Rotation" hint={`${gridDegrees.toFixed(1)}°`}>
+                    <AppSlider
+                      value={gridDegrees}
+                      min={-180}
+                      max={180}
+                      step={0.1}
+                      disabled={controlsDisabled}
+                      onChange={(value) =>
+                        setGrid((current) => ({
+                          ...current,
+                          rotation: degreesToRadians(value),
+                        }))
+                      }
+                    />
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Spacing A">
+                      <NumberInput
+                        value={grid.spacingA}
+                        disabled={controlsDisabled}
+                        onChange={(value) =>
+                          setGrid((current) => ({
+                            ...current,
+                            spacingA: Number.isFinite(value) && value > 0 ? value : 1,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Spacing B">
+                      <NumberInput
+                        value={grid.spacingB}
+                        disabled={controlsDisabled}
+                        onChange={(value) =>
+                          setGrid((current) => ({
+                            ...current,
+                            spacingB: Number.isFinite(value) && value > 0 ? value : 1,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Cell Width">
+                      <NumberInput
+                        value={grid.cellWidth}
+                        disabled={controlsDisabled}
+                        onChange={(value) =>
+                          setGrid((current) => ({
+                            ...current,
+                            cellWidth: Number.isFinite(value) && value > 0 ? value : 1,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Cell Height">
+                      <NumberInput
+                        value={grid.cellHeight}
+                        disabled={controlsDisabled}
+                        onChange={(value) =>
+                          setGrid((current) => ({
+                            ...current,
+                            cellHeight: Number.isFinite(value) && value > 0 ? value : 1,
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Offset X">
+                      <NumberInput
+                        value={grid.tx}
+                        disabled={controlsDisabled}
+                        step="0.1"
+                        onChange={(value) =>
+                          setGrid((current) => ({ ...current, tx: Number.isFinite(value) ? value : 0 }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Offset Y">
+                      <NumberInput
+                        value={grid.ty}
+                        disabled={controlsDisabled}
+                        step="0.1"
+                        onChange={(value) =>
+                          setGrid((current) => ({ ...current, ty: Number.isFinite(value) ? value : 0 }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="Overlay Opacity" hint={grid.opacity.toFixed(2)}>
+                    <AppSlider
+                      value={grid.opacity}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      disabled={controlsDisabled}
+                      onChange={(value) =>
+                        setGrid((current) => ({ ...current, opacity: clamp(value, 0, 1) }))
+                      }
+                    />
+                  </Field>
+
+                  <Button size="sm" variant="outline" disabled={controlsDisabled} onClick={() => setGrid(createDefaultGrid())}>
+                    Reset grid
+                  </Button>
+                </PanelCard>
+
+                <PanelCard title="Overlay Notes" eyebrow="Reference" icon={<Hexagon className="size-4" />}>
+                  <div className="metric-surface space-y-3 rounded-2xl px-3 py-3 text-sm text-muted-foreground">
+                    <p>
+                      The image remains fixed while align mode is enabled. Pointer drag only updates the grid translation.
+                    </p>
+                    <p>
+                      Orange marks the first spacing vector, green marks the second, matching the calibration affordance used in the reference tools.
+                    </p>
+                  </div>
+                </PanelCard>
+              </aside>
             </div>
-
-            <Field label="Shape">
-              <AppSelect
-                value={grid.shape}
-                options={shapeOptions}
-                disabled={controlsDisabled}
-                onChange={(value) => setGrid((current) => ({ ...current, shape: value }))}
-              />
-            </Field>
-
-            <Field label="Rotation" hint={`${gridDegrees.toFixed(1)}°`}>
-              <AppSlider
-                value={gridDegrees}
-                min={-180}
-                max={180}
-                step={0.1}
-                disabled={controlsDisabled}
-                onChange={(value) =>
-                  setGrid((current) => ({
-                    ...current,
-                    rotation: degreesToRadians(value),
-                  }))
-                }
-              />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Spacing A">
-                <NumberInput
-                  value={grid.spacingA}
-                  disabled={controlsDisabled}
-                  onChange={(value) =>
-                    setGrid((current) => ({ ...current, spacingA: Number.isFinite(value) && value > 0 ? value : 1 }))
-                  }
-                />
-              </Field>
-              <Field label="Spacing B">
-                <NumberInput
-                  value={grid.spacingB}
-                  disabled={controlsDisabled}
-                  onChange={(value) =>
-                    setGrid((current) => ({ ...current, spacingB: Number.isFinite(value) && value > 0 ? value : 1 }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Cell Width">
-                <NumberInput
-                  value={grid.cellWidth}
-                  disabled={controlsDisabled}
-                  onChange={(value) =>
-                    setGrid((current) => ({ ...current, cellWidth: Number.isFinite(value) && value > 0 ? value : 1 }))
-                  }
-                />
-              </Field>
-              <Field label="Cell Height">
-                <NumberInput
-                  value={grid.cellHeight}
-                  disabled={controlsDisabled}
-                  onChange={(value) =>
-                    setGrid((current) => ({ ...current, cellHeight: Number.isFinite(value) && value > 0 ? value : 1 }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Offset X">
-                <NumberInput
-                  value={grid.tx}
-                  disabled={controlsDisabled}
-                  step="0.1"
-                  onChange={(value) =>
-                    setGrid((current) => ({ ...current, tx: Number.isFinite(value) ? value : 0 }))
-                  }
-                />
-              </Field>
-              <Field label="Offset Y">
-                <NumberInput
-                  value={grid.ty}
-                  disabled={controlsDisabled}
-                  step="0.1"
-                  onChange={(value) =>
-                    setGrid((current) => ({ ...current, ty: Number.isFinite(value) ? value : 0 }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <Field label="Overlay Opacity" hint={grid.opacity.toFixed(2)}>
-              <AppSlider
-                value={grid.opacity}
-                min={0}
-                max={1}
-                step={0.01}
-                disabled={controlsDisabled}
-                onChange={(value) =>
-                  setGrid((current) => ({ ...current, opacity: clamp(value, 0, 1) }))
-                }
-              />
-            </Field>
-
-            <ActionButton variant="ghost" disabled={controlsDisabled} onClick={() => setGrid(createDefaultGrid())}>
-              Reset grid
-            </ActionButton>
-          </PanelCard>
-
-          <PanelCard title="Overlay Notes" eyebrow="Reference" icon={<Hexagon className="size-4" />}>
-            <div className="space-y-3 rounded-2xl border border-white/8 bg-black/15 p-3 text-sm text-white/58">
-              <p>
-                The image remains fixed while align mode is enabled. Pointer drag only updates the grid translation.
-              </p>
-              <p>
-                Orange marks the first spacing vector, green marks the second, matching the calibration affordance used in the reference tools.
-              </p>
-            </div>
-          </PanelCard>
-        </aside>
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

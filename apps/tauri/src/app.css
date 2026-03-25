@@ -1,16 +1,86 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark, .dark *));
+
+@theme inline {
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
 :root {
+  color-scheme: light;
+  --radius: 0.625rem;
+  --background: var(--color-white);
+  --foreground: var(--color-neutral-800);
+  --card: var(--color-white);
+  --card-foreground: var(--color-neutral-800);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-neutral-800);
+  --primary: oklch(0.488 0.217 264);
+  --primary-foreground: var(--color-white);
+  --secondary: --alpha(var(--color-black) / 4%);
+  --secondary-foreground: var(--color-neutral-800);
+  --muted: --alpha(var(--color-black) / 4%);
+  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
+  --accent: --alpha(var(--color-black) / 4%);
+  --accent-foreground: var(--color-neutral-800);
+  --destructive: var(--color-red-500);
+  --destructive-foreground: var(--color-red-700);
+  --border: --alpha(var(--color-black) / 8%);
+  --input: --alpha(var(--color-black) / 10%);
+  --ring: oklch(0.488 0.217 264);
+}
+
+.dark {
   color-scheme: dark;
-  --background: #050a14;
-  --foreground: #f3f7ff;
-  --panel: rgba(255, 255, 255, 0.06);
-  --panel-border: rgba(255, 255, 255, 0.1);
-  --muted: rgba(255, 255, 255, 0.58);
+  --background: color-mix(in srgb, var(--color-neutral-950) 96%, #04070d);
+  --foreground: var(--color-neutral-100);
+  --card: color-mix(in srgb, var(--background) 96%, var(--color-white));
+  --card-foreground: var(--color-neutral-100);
+  --popover: color-mix(in srgb, var(--background) 97%, var(--color-white));
+  --popover-foreground: var(--color-neutral-100);
+  --primary: oklch(0.588 0.217 264);
+  --primary-foreground: var(--color-white);
+  --secondary: --alpha(var(--color-white) / 4%);
+  --secondary-foreground: var(--color-neutral-100);
+  --muted: --alpha(var(--color-white) / 4%);
+  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
+  --accent: --alpha(var(--color-white) / 4%);
+  --accent-foreground: var(--color-neutral-100);
+  --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
+  --destructive-foreground: var(--color-red-400);
+  --border: --alpha(var(--color-white) / 6%);
+  --input: --alpha(var(--color-white) / 8%);
+  --ring: oklch(0.588 0.217 264);
 }
 
 @layer base {
   * {
+    @apply border-border outline-ring/50;
     box-sizing: border-box;
   }
 
@@ -27,24 +97,39 @@
   }
 
   body {
+    @apply bg-background text-foreground relative;
     margin: 0;
-    min-height: 100vh;
-    overflow: hidden;
-    background:
-      radial-gradient(circle at top left, rgba(56, 189, 248, 0.14), transparent 22%),
-      radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.16), transparent 24%),
-      linear-gradient(140deg, #020611 0%, #09111d 42%, #13213b 100%);
-    color: var(--foreground);
+    overflow-x: hidden;
+    overflow-y: auto;
     font-family:
-      "Avenir Next",
-      "Segoe UI Variable",
+      "DM Sans",
+      -apple-system,
+      BlinkMacSystemFont,
       "Segoe UI",
-      "Helvetica Neue",
+      system-ui,
       sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
     font-synthesis: none;
     text-rendering: geometricPrecision;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-image:
+      radial-gradient(circle at top, color-mix(in srgb, var(--primary) 14%, transparent), transparent 30%),
+      radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--color-blue-400) 10%, transparent), transparent 28%),
+      linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, #08111f), var(--background));
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 24%),
+      radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--color-cyan-400) 9%, transparent), transparent 18%),
+      radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--color-white) 4%, transparent), transparent 35%);
+    opacity: 0.75;
   }
 
   body::after {
@@ -52,7 +137,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    opacity: 0.028;
+    opacity: 0.035;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-repeat: repeat;
     background-size: 256px 256px;
@@ -65,22 +150,71 @@
     font: inherit;
   }
 
+  pre,
   code,
-  input[type="number"] {
-    font-family:
-      "SF Mono",
-      "IBM Plex Mono",
-      "SFMono-Regular",
-      Menlo,
-      Consolas,
-      monospace;
+  textarea,
+  input {
+    font-family: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+}
+
+@layer components {
+  .shell-surface {
+    background: color-mix(in srgb, var(--card) 72%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--color-white) 6%, transparent) inset,
+      0 24px 90px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(24px);
+  }
+
+  .panel-surface {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 96%, transparent),
+        color-mix(in srgb, var(--background) 94%, transparent)
+      );
+    border: 1px solid color-mix(in srgb, var(--border) 98%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent) inset,
+      0 20px 50px rgba(0, 0, 0, 0.18);
+  }
+
+  .metric-surface {
+    background: color-mix(in srgb, var(--background) 72%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent) inset;
+  }
+
+  .overlay-surface {
+    background: color-mix(in srgb, var(--background) 70%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
+    box-shadow:
+      0 18px 50px rgba(0, 0, 0, 0.24),
+      0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent) inset;
+    backdrop-filter: blur(20px);
+  }
+
+  .viewport-surface {
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--primary) 14%, transparent), transparent 36%),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--card) 94%, transparent),
+        color-mix(in srgb, var(--background) 98%, transparent)
+      );
+    border: 1px solid color-mix(in srgb, var(--border) 98%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--color-white) 6%, transparent) inset,
+      0 28px 80px rgba(0, 0, 0, 0.28);
   }
 }
 
 @layer utilities {
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -88,11 +222,19 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.14);
-    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 3px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.22);
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
   }
 }
