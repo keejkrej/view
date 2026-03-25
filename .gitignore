@@ -7,4 +7,6 @@ target
 src-tauri/target
 Cargo.lock
 *.log
+__pycache__/
+*.egg-info/
 

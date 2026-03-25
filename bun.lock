@@ -5,18 +5,32 @@
     "": {
       "name": "view",
     },
-    "apps/tauri": {
-      "name": "@view/tauri-app",
+    "apps/view-py/web": {
+      "name": "@view/view-py-web",
       "version": "0.1.0",
       "dependencies": {
-        "@base-ui/react": "^1.3.0",
-        "@tauri-apps/api": "^2.8.0",
-        "@view/pos-viewer": "workspace:*",
-        "class-variance-authority": "^0.7.1",
-        "lucide-react": "^1.6.0",
+        "@view/view": "workspace:*",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
-        "tailwind-merge": "^3.4.0",
+      },
+      "devDependencies": {
+        "@tailwindcss/vite": "^4.2.2",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "@vitejs/plugin-react": "^4.7.0",
+        "tailwindcss": "^4.2.2",
+        "typescript": "^5.6.3",
+        "vite": "^6.3.0",
+      },
+    },
+    "apps/view-rs": {
+      "name": "@view/view-rs",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tauri-apps/api": "^2.8.0",
+        "@view/view": "workspace:*",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.2.2",
@@ -29,10 +43,17 @@
         "vite": "^6.3.0",
       },
     },
-    "packages/pos-viewer": {
-      "name": "@view/pos-viewer",
+    "packages/view": {
+      "name": "@view/view",
       "version": "0.1.0",
+      "dependencies": {
+        "@base-ui/react": "^1.3.0",
+        "class-variance-authority": "^0.7.1",
+        "lucide-react": "^1.6.0",
+        "tailwind-merge": "^3.4.0",
+      },
       "devDependencies": {
+        "@tailwindcss/vite": "^4.2.2",
         "@types/bun": "^1.3.0",
         "@types/node": "^24.0.0",
         "@types/react": "^18.3.12",
@@ -40,6 +61,7 @@
         "@vitejs/plugin-react": "^4.7.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
+        "tailwindcss": "^4.2.2",
         "typescript": "^5.6.3",
         "vite": "^6.3.0",
       },
@@ -292,9 +314,11 @@
 
     "@types/react-dom": ["@types/react-dom@18.3.7", "", { "peerDependencies": { "@types/react": "^18.0.0" } }, "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ=="],
 
-    "@view/pos-viewer": ["@view/pos-viewer@workspace:packages/pos-viewer"],
+    "@view/view": ["@view/view@workspace:packages/view"],
 
-    "@view/tauri-app": ["@view/tauri-app@workspace:apps/tauri"],
+    "@view/view-py-web": ["@view/view-py-web@workspace:apps/view-py/web"],
+
+    "@view/view-rs": ["@view/view-rs@workspace:apps/view-rs"],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@4.7.0", "", { "dependencies": { "@babel/core": "^7.28.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-beta.27", "@types/babel__core": "^7.20.5", "react-refresh": "^0.17.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0" } }, "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA=="],
 

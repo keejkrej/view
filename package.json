@@ -5,15 +5,18 @@
   "packageManager": "bun@1.2.22",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "apps/*/web"
   ],
   "scripts": {
-    "build": "bun run build:viewer && bun run build:tauri:renderer",
-    "build:viewer": "bun run --cwd packages/pos-viewer build",
-    "build:tauri:renderer": "bun run --cwd apps/tauri build:renderer",
-    "check:tauri": "bun run --cwd apps/tauri check:tauri",
-    "dev": "bun run --cwd apps/tauri dev",
-    "test": "bun run --cwd packages/pos-viewer test",
-    "typecheck": "bun run --cwd packages/pos-viewer typecheck && bun run --cwd apps/tauri typecheck"
+    "build": "bun run build:view && bun run build:view-rs:web",
+    "build:view": "bun run --cwd packages/view build",
+    "build:view-rs:web": "bun run --cwd apps/view-rs build:renderer",
+    "build:view-py:web": "bun run --cwd apps/view-py/web build",
+    "check:tauri": "bun run --cwd apps/view-rs check:tauri",
+    "dev": "bun run --cwd apps/view-rs dev",
+    "dev:view-py:web": "bun run --cwd apps/view-py/web dev",
+    "test": "bun run --cwd packages/view test",
+    "typecheck": "bun run --cwd packages/view typecheck && bun run --cwd apps/view-rs typecheck && bun run --cwd apps/view-py/web typecheck"
   }
 }
