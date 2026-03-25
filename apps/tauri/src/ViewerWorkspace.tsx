@@ -3,10 +3,7 @@ import {
   Aperture,
   FolderOpen,
   Grid3X3,
-  Hexagon,
   Layers3,
-  LoaderCircle,
-  ScanSearch,
   X,
 } from "lucide-react";
 import {
@@ -39,7 +36,6 @@ import {
   type WorkspaceScan,
 } from "@view/pos-viewer";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import {
   Select,
@@ -207,31 +203,22 @@ function PanelCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="panel-surface overflow-hidden rounded-[24px] shadow-none">
-      <CardHeader className="mb-0 flex-row items-start justify-between gap-3 border-b border-white/6 p-4 pb-3">
-        <div>
+    <section className="space-y-3 py-3 first:pt-0 last:pb-0">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="min-w-0">
           {eyebrow ? (
             <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
               {eyebrow}
             </p>
           ) : null}
-          <CardTitle className="mt-1 text-[0.95rem] leading-none">{title}</CardTitle>
+          <h2 className="mt-1 text-[0.9rem] font-semibold leading-none text-foreground">{title}</h2>
         </div>
         {icon ? (
-          <div className="metric-surface rounded-xl p-2 text-muted-foreground">{icon}</div>
+          <div className="text-muted-foreground">{icon}</div>
         ) : null}
-      </CardHeader>
-      <CardContent className="space-y-4 p-4 pt-4">{children}</CardContent>
-    </Card>
-  );
-}
-
-function MetricPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric-surface rounded-2xl px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
-    </div>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
   );
 }
 
@@ -245,8 +232,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between gap-4">
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3">
         <label className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
           {label}
         </label>
@@ -340,13 +327,13 @@ function AppSlider({
       disabled={disabled}
       onValueChange={onChange}
       onValueCommitted={onCommit}
-      className="flex h-7 items-center"
+      className="flex h-6 items-center"
     >
-      <Slider.Control className="relative h-1.5 w-full rounded-full bg-white/8">
+      <Slider.Control className="relative h-1.25 w-full rounded-full bg-white/8">
         <Slider.Track className="relative h-full rounded-full">
           <Slider.Indicator className="absolute h-full rounded-full bg-primary shadow-[0_0_20px_color-mix(in_srgb,var(--primary)_45%,transparent)]" />
         </Slider.Track>
-        <Slider.Thumb className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-card shadow-[0_6px_20px_rgba(0,0,0,0.28)] outline-none ring-4 ring-background/50" />
+        <Slider.Thumb className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-card shadow-[0_4px_14px_rgba(0,0,0,0.24)] outline-none ring-3 ring-background/50" />
       </Slider.Control>
     </Slider.Root>
   );
@@ -688,95 +675,56 @@ export default function ViewerWorkspace({
 
   const workspaceName = root ? workspaceNameFromPath(root) : "Pos Viewer";
   const dims = frame ? `${frame.width} x ${frame.height}` : "No frame";
+  const workspaceStatus = loading ? "Scanning" : hasScan ? "Ready" : "No workspace";
+  const frameSummary = loading ? "Loading frame" : frame ? dims : "No frame";
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-[28rem] bg-[radial-gradient(52rem_22rem_at_top,color-mix(in_srgb,var(--primary)_16%,transparent),transparent)]" />
-        <div className="absolute -left-28 top-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
-        <div className="absolute right-[-7rem] top-40 h-72 w-72 rounded-full bg-cyan-400/8 blur-3xl" />
+        <div className="absolute inset-x-0 top-0 h-[18rem] bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--primary)_11%,transparent),transparent)]" />
+        <div className="absolute right-[-5rem] top-24 h-56 w-56 rounded-full bg-cyan-400/6 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex min-h-screen max-w-[1720px] flex-col px-4 py-4 md:px-6 md:py-5">
-        <header className="shell-surface rounded-[28px] px-5 py-5 md:px-6 md:py-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-            <div className="min-w-0 space-y-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span className="metric-surface rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-primary">
-                  View
-                </span>
-                <span className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                  Pos Workspace Viewer
+      <div className="relative mx-auto flex min-h-screen max-w-[1720px] flex-col px-3 py-3 md:px-4 md:py-4">
+        <header className="border-b border-border px-3 py-3 md:px-4 md:py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg font-semibold tracking-[-0.03em] text-foreground md:text-xl">
+                  {workspaceName}
+                </h1>
+                <span className="metric-surface rounded-full px-2.5 py-1 text-[11px] text-muted-foreground">
+                  {workspaceStatus}
                 </span>
               </div>
-
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-end gap-3">
-                  <h1 className="text-xl font-semibold tracking-[-0.03em] text-foreground md:text-2xl">
-                    {workspaceName}
-                  </h1>
-                  <span className="metric-surface rounded-full px-3 py-1 text-[11px] text-muted-foreground">
-                    {loading ? "Scanning workspace" : hasScan ? "Workspace ready" : "No workspace loaded"}
-                  </span>
-                </div>
-                <p className="max-w-3xl text-sm text-muted-foreground">
-                  {root
-                    ? "Fixed-image alignment workspace with live grid calibration, contrast control, and fast position navigation."
-                    : "Open a workspace to browse positions, inspect TIFF frames, and align the grid overlay in the main viewer."}
-                </p>
-                <div className="metric-surface max-w-full rounded-2xl px-3 py-2 text-[11px] text-muted-foreground">
-                  <span className="block truncate font-mono">
-                    {root || "No workspace selected"}
-                  </span>
-                </div>
+              <div className="metric-surface max-w-full rounded-xl px-3 py-1.5 text-[11px] text-muted-foreground">
+                <span className="block truncate font-mono">{root || "No workspace selected"}</span>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 xl:min-w-[29rem] xl:max-w-[38rem] xl:items-end">
-              <div className="grid w-full gap-2 sm:grid-cols-3">
-                <MetricPill label="Positions" value={String(scan?.positions.length ?? 0)} />
-                <MetricPill label="Channels" value={String(scan?.channels.length ?? 0)} />
-                <MetricPill label="Frame" value={dims} />
-              </div>
-              <div className="flex w-full flex-wrap items-center gap-2 xl:justify-end">
-                <Button size="sm" onClick={() => void onOpenWorkspace()}>
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <Button size="sm" onClick={() => void onOpenWorkspace()}>
+                <span className="inline-flex items-center gap-2">
+                  <FolderOpen className="size-4" />
+                  Open Workspace
+                </span>
+              </Button>
+              {root ? (
+                <Button size="sm" variant="outline" onClick={onClearWorkspace}>
                   <span className="inline-flex items-center gap-2">
-                    <FolderOpen className="size-4" />
-                    Open Workspace
+                    <X className="size-4" />
+                    Clear
                   </span>
                 </Button>
-                {root ? (
-                  <Button size="sm" variant="outline" onClick={onClearWorkspace}>
-                    <span className="inline-flex items-center gap-2">
-                      <X className="size-4" />
-                      Clear
-                    </span>
-                  </Button>
-                ) : null}
-              </div>
+              ) : null}
             </div>
           </div>
         </header>
 
-        <main className="relative mt-4 flex-1">
-          <div className="shell-surface rounded-[32px] p-3 md:p-4 xl:p-5">
-            <div className="grid gap-4 md:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)_20rem]">
-              <aside className="space-y-4">
-                <PanelCard title="Workspace" eyebrow="Overview" icon={<ScanSearch className="size-4" />}>
-                  <div className="grid grid-cols-2 gap-3">
-                    <MetricPill label="Times" value={String(scan?.times.length ?? 0)} />
-                    <MetricPill label="Z slices" value={String(scan?.zSlices.length ?? 0)} />
-                  </div>
-                  <div className="metric-surface rounded-2xl px-3 py-3 text-sm text-muted-foreground">
-                    {loading
-                      ? "Scanning workspace..."
-                      : hasScan
-                        ? "Workspace scanned successfully. Use the controls below to navigate frames."
-                        : "No workspace selected. Open a valid workspace with Pos directories and TIFF frames."}
-                  </div>
-                </PanelCard>
-
-                <PanelCard title="Image Navigation" eyebrow="Frame" icon={<Layers3 className="size-4" />}>
+        <main className="relative flex-1 xl:min-h-0">
+          <div className="grid md:grid-cols-[16rem_minmax(0,1fr)] xl:h-[min(44rem,calc(100vh-10rem))] xl:min-h-[30rem] xl:grid-cols-[16rem_minmax(0,1fr)_18rem] xl:items-stretch">
+              <aside className="divide-y divide-border border-b border-border py-3 md:border-b-0 md:border-r md:pr-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-3">
+                <PanelCard title="Navigation" eyebrow="Frame" icon={<Layers3 className="size-4" />}>
                   <Field label="Position">
                     <AppSelect
                       value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
@@ -875,28 +823,31 @@ export default function ViewerWorkspace({
                 </PanelCard>
               </aside>
 
-              <section className="min-h-[34rem]">
-                <div className="viewport-surface relative flex h-full min-h-[34rem] flex-col overflow-hidden rounded-[28px]">
-                  <div className="border-b border-white/6 px-4 py-3 md:px-5">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <span className="metric-surface inline-flex items-center gap-2 rounded-full px-3 py-1">
+              <section className="min-h-[30rem] md:min-w-0 xl:h-full xl:min-h-0">
+                <div className="relative flex h-full min-h-[30rem] flex-col overflow-hidden">
+                  <div className="border-b border-border px-3 py-2.5 md:px-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="metric-surface inline-flex items-center gap-1.5 rounded-full px-2.5 py-1">
                           <div
                             className={cn(
-                              "size-2 rounded-full",
+                              "size-1.5 rounded-full",
                               loading ? "animate-pulse bg-amber-300" : "bg-emerald-300",
                             )}
                           />
-                          {loading ? "Loading" : "Ready"}
+                          {workspaceStatus}
                         </span>
                         {selection ? (
-                          <span className="metric-surface rounded-full px-3 py-1 text-[11px] text-muted-foreground">
+                          <span className="metric-surface rounded-full px-2.5 py-1 text-[11px] text-muted-foreground">
                             Pos {selection.pos} · Ch {selection.channel} · T {selection.time} · Z {selection.z}
                           </span>
                         ) : null}
+                        <span className="metric-surface rounded-full px-2.5 py-1 text-[11px] text-muted-foreground">
+                          {frameSummary}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                        <span className="metric-surface rounded-full px-3 py-1">
+                      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                        <span className="metric-surface rounded-full px-2.5 py-1">
                           {grid.enabled ? "Align mode" : "Inspect mode"}
                         </span>
                       </div>
@@ -904,7 +855,7 @@ export default function ViewerWorkspace({
                   </div>
 
                   <div
-                    className="relative min-h-[30rem] flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--primary)_8%,transparent),transparent_35%)]"
+                    className="relative min-h-[26rem] flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--primary)_8%,transparent),transparent_35%)]"
                     ref={viewportRef}
                   >
                     <canvas
@@ -920,56 +871,28 @@ export default function ViewerWorkspace({
                       onContextMenu={(event) => event.preventDefault()}
                     />
 
-                    <div className="pointer-events-none absolute left-4 top-4 flex max-w-[78%] flex-wrap gap-2">
+                    <div className="pointer-events-none absolute left-3 top-3 flex max-w-[78%] flex-wrap gap-1.5">
                       {error ? (
-                        <div className="overlay-surface rounded-2xl border-destructive/25 px-4 py-3 text-sm text-destructive">
+                        <div className="overlay-surface rounded-xl border-destructive/25 px-3 py-2 text-sm text-destructive">
                           {error}
                         </div>
                       ) : null}
                       {!root ? (
-                        <div className="overlay-surface rounded-2xl px-4 py-3 text-sm text-muted-foreground">
+                        <div className="overlay-surface rounded-xl px-3 py-2 text-sm text-muted-foreground">
                           No workspace selected. Use “Open Workspace” to start.
                         </div>
                       ) : null}
-                      {!grid.enabled && frame ? (
-                        <div className="overlay-surface rounded-2xl px-4 py-3 text-sm text-muted-foreground">
-                          Enable align mode to drag the grid while the image stays fixed.
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap items-end justify-between gap-3">
-                      <div className="overlay-surface rounded-2xl px-4 py-3 text-sm text-muted-foreground">
-                        <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                          Frame Status
-                        </div>
-                        <div className="mt-1 flex items-center gap-2">
-                          {loading ? <LoaderCircle className="size-4 animate-spin text-primary" /> : null}
-                          <span>{loading ? "Loading frame..." : frame ? dims : "Idle"}</span>
-                        </div>
-                      </div>
-
-                      <div className="overlay-surface rounded-2xl px-4 py-3 text-right text-sm text-muted-foreground">
-                        <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                          Grid
-                        </div>
-                        <div className="mt-1">
-                          {grid.shape} · {grid.cellWidth}×{grid.cellHeight} · opacity {grid.opacity.toFixed(2)}
-                        </div>
-                      </div>
                     </div>
                   </div>
                 </div>
               </section>
 
-              <aside className="space-y-4">
-                <PanelCard title="Grid Alignment" eyebrow="Overlay" icon={<Grid3X3 className="size-4" />}>
-                  <div className="metric-surface flex items-start justify-between gap-4 rounded-2xl px-3 py-3">
-                    <div>
+              <aside className="divide-y divide-border border-t border-border py-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:border-t-0 xl:border-l xl:pl-3">
+                <PanelCard title="Grid" eyebrow="Overlay" icon={<Grid3X3 className="size-4" />}>
+                  <div className="metric-surface flex items-center justify-between gap-3 rounded-xl px-3 py-2.5">
+                    <div className="min-w-0">
                       <div className="text-sm font-medium text-foreground">Align grid</div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Drag directly on the image canvas to move the overlay.
-                      </p>
+                      <p className="truncate text-xs text-muted-foreground">Drag on the image when enabled.</p>
                     </div>
                     <Switch
                       checked={grid.enabled}
@@ -1003,7 +926,7 @@ export default function ViewerWorkspace({
                     />
                   </Field>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2">
                     <Field label="Spacing A">
                       <NumberInput
                         value={grid.spacingA}
@@ -1030,7 +953,7 @@ export default function ViewerWorkspace({
                     </Field>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2">
                     <Field label="Cell Width">
                       <NumberInput
                         value={grid.cellWidth}
@@ -1057,7 +980,7 @@ export default function ViewerWorkspace({
                     </Field>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2">
                     <Field label="Offset X">
                       <NumberInput
                         value={grid.tx}
@@ -1097,20 +1020,8 @@ export default function ViewerWorkspace({
                     Reset grid
                   </Button>
                 </PanelCard>
-
-                <PanelCard title="Overlay Notes" eyebrow="Reference" icon={<Hexagon className="size-4" />}>
-                  <div className="metric-surface space-y-3 rounded-2xl px-3 py-3 text-sm text-muted-foreground">
-                    <p>
-                      The image remains fixed while align mode is enabled. Pointer drag only updates the grid translation.
-                    </p>
-                    <p>
-                      Orange marks the first spacing vector, green marks the second, matching the calibration affordance used in the reference tools.
-                    </p>
-                  </div>
-                </PanelCard>
               </aside>
             </div>
-          </div>
         </main>
       </div>
     </div>

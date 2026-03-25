@@ -33,7 +33,7 @@
 
 :root {
   color-scheme: light;
-  --radius: 0.625rem;
+  --radius: 0.5rem;
   --background: var(--color-white);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
@@ -115,8 +115,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background-image:
-      radial-gradient(circle at top, color-mix(in srgb, var(--primary) 14%, transparent), transparent 30%),
-      radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--color-blue-400) 10%, transparent), transparent 28%),
+      radial-gradient(circle at top, color-mix(in srgb, var(--primary) 10%, transparent), transparent 28%),
+      radial-gradient(circle at 18% 18%, color-mix(in srgb, var(--color-blue-400) 6%, transparent), transparent 24%),
       linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, #08111f), var(--background));
   }
 
@@ -126,10 +126,9 @@
     inset: 0;
     pointer-events: none;
     background:
-      radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 24%),
-      radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--color-cyan-400) 9%, transparent), transparent 18%),
-      radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--color-white) 4%, transparent), transparent 35%);
-    opacity: 0.75;
+      radial-gradient(circle at 22% 18%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 22%),
+      radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--color-cyan-400) 6%, transparent), transparent 16%);
+    opacity: 0.5;
   }
 
   body::after {
@@ -137,7 +136,7 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    opacity: 0.035;
+    opacity: 0.02;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-repeat: repeat;
     background-size: 256px 256px;
@@ -159,28 +158,6 @@
 }
 
 @layer components {
-  .shell-surface {
-    background: color-mix(in srgb, var(--card) 72%, transparent);
-    border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
-    box-shadow:
-      0 1px 0 color-mix(in srgb, var(--color-white) 6%, transparent) inset,
-      0 24px 90px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(24px);
-  }
-
-  .panel-surface {
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--card) 96%, transparent),
-        color-mix(in srgb, var(--background) 94%, transparent)
-      );
-    border: 1px solid color-mix(in srgb, var(--border) 98%, transparent);
-    box-shadow:
-      0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent) inset,
-      0 20px 50px rgba(0, 0, 0, 0.18);
-  }
-
   .metric-surface {
     background: color-mix(in srgb, var(--background) 72%, transparent);
     border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
@@ -191,23 +168,9 @@
     background: color-mix(in srgb, var(--background) 70%, transparent);
     border: 1px solid color-mix(in srgb, var(--border) 96%, transparent);
     box-shadow:
-      0 18px 50px rgba(0, 0, 0, 0.24),
+      0 10px 24px rgba(0, 0, 0, 0.18),
       0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent) inset;
-    backdrop-filter: blur(20px);
-  }
-
-  .viewport-surface {
-    background:
-      radial-gradient(circle at top, color-mix(in srgb, var(--primary) 14%, transparent), transparent 36%),
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--card) 94%, transparent),
-        color-mix(in srgb, var(--background) 98%, transparent)
-      );
-    border: 1px solid color-mix(in srgb, var(--border) 98%, transparent);
-    box-shadow:
-      0 1px 0 color-mix(in srgb, var(--color-white) 6%, transparent) inset,
-      0 28px 80px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(14px);
   }
 }
 
