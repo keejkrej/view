@@ -11,6 +11,10 @@ export async function pickWorkspace(): Promise<string | null> {
   return invoke<string | null>("pick_workspace");
 }
 
+export async function saveBbox(root: string, pos: number, csv: string): Promise<{ ok: boolean; error?: string }> {
+  return invoke<{ ok: boolean; error?: string }>("save_bbox", { root, pos, csv });
+}
+
 export const tauriDataSource: PosViewerDataSource = {
   scanWorkspace(root: string): Promise<WorkspaceScan> {
     return invoke<WorkspaceScan>("scan_workspace", { root });

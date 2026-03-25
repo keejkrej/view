@@ -12,9 +12,11 @@ export type {
   ViewerSelection,
   WorkspaceScan,
 } from "./types";
+export type { GridCellRect } from "./utils";
 export {
   applyGridWheelGesture,
   autoContrast,
+  buildBboxCsv,
   classifyGridWheelGesture,
   clamp,
   coerceSelection,
@@ -22,6 +24,8 @@ export {
   createSelection,
   degreesToRadians,
   estimateGridDraw,
+  enumerateVisibleGridCells,
+  findGridCellAtPoint,
   getFrameContrastDomain,
   gridBasis,
   isTouchpadLikeGridWheelGesture,

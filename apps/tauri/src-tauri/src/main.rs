@@ -41,6 +41,13 @@ struct FrameResponse {
     data: Vec<u16>,
 }
 
+#[derive(Serialize)]
+struct SaveBboxResponse {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 fn parse_pos_dir_name(name: &str) -> Option<u32> {
     let normalized: String = name.chars().filter(|c| !c.is_whitespace()).collect();
     if normalized.is_empty() {
@@ -184,6 +191,10 @@ fn load_tiff_frame(path: &Path) -> Result<FrameResponse, String> {
     Ok(FrameResponse { width, height, data })
 }
 
+fn bbox_csv_path(root: &str, pos: u32) -> PathBuf {
+    Path::new(root).join(format!("Pos{pos}_bbox.csv"))
+}
+
 #[command]
 fn pick_workspace() -> Option<String> {
     FileDialog::new()
@@ -248,16 +259,46 @@ fn load_frame(root: String, request: FrameRequest) -> Result<FrameResponse, Stri
     load_tiff_frame(&matching)
 }
 
+#[command]
+fn save_bbox(root: String, pos: u32, csv: String) -> SaveBboxResponse {
+    if let Err(error) = fs::create_dir_all(&root) {
+        return SaveBboxResponse {
+            ok: false,
+            error: Some(error.to_string()),
+        };
+    }
+
+    let normalized = if csv.ends_with('\n') {
+        csv
+    } else {
+        format!("{csv}\n")
+    };
+
+    match fs::write(bbox_csv_path(&root, pos), normalized) {
+        Ok(_) => SaveBboxResponse {
+            ok: true,
+            error: None,
+        },
+        Err(error) => SaveBboxResponse {
+            ok: false,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![pick_workspace, scan_workspace, load_frame])
+        .invoke_handler(tauri::generate_handler![pick_workspace, scan_workspace, load_frame, save_bbox])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_pos_dir_name, parse_tiff_name};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{bbox_csv_path, parse_pos_dir_name, parse_tiff_name, save_bbox};
 
     #[test]
     fn parses_position_dir_names() {
@@ -274,5 +315,25 @@ mod tests {
         assert_eq!(parsed.position, 58);
         assert_eq!(parsed.time, 3);
         assert_eq!(parsed.z, 4);
+    }
+
+    #[test]
+    fn save_bbox_writes_expected_file_name_with_trailing_newline() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("view-tauri-save-bbox-{unique}"));
+        let root_string = root.to_string_lossy().to_string();
+
+        let result = save_bbox(root_string.clone(), 7, "crop,x,y,w,h\n0,1,2,3,4".to_string());
+        assert!(result.ok);
+
+        let saved_path = bbox_csv_path(&root_string, 7);
+        let saved = fs::read_to_string(&saved_path).unwrap();
+        assert_eq!(saved, "crop,x,y,w,h\n0,1,2,3,4\n");
+
+        let _ = fs::remove_file(saved_path);
+        let _ = fs::remove_dir_all(root);
     }
 }

@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   applyGridWheelGesture,
   autoContrast,
+  buildBboxCsv,
   classifyGridWheelGesture,
   createDefaultGrid,
   degreesToRadians,
   estimateGridDraw,
+  enumerateVisibleGridCells,
+  findGridCellAtPoint,
   getFrameContrastDomain,
   gridBasis,
   normalizeRadians,
@@ -169,5 +172,89 @@ describe("grid utils", () => {
     );
 
     expect(next.rotation).toBeCloseTo(normalizeRadians(degreesToRadians(22)));
+  });
+
+  test("keeps edge-touching cells visible", () => {
+    const cells = enumerateVisibleGridCells(
+      {
+        width: 100,
+        height: 100,
+        pixels: new Uint16Array(10000),
+      },
+      normalizeGridState({
+        enabled: true,
+        tx: 0,
+        ty: 0,
+        spacingA: 50,
+        spacingB: 50,
+        cellWidth: 50,
+        cellHeight: 50,
+      }),
+    );
+
+    expect(cells.some((cell) => cell.x === -25 && cell.y === 25)).toBe(true);
+  });
+
+  test("omits cells fully outside the frame", () => {
+    const cells = enumerateVisibleGridCells(
+      {
+        width: 100,
+        height: 100,
+        pixels: new Uint16Array(10000),
+      },
+      normalizeGridState({
+        enabled: true,
+        tx: 1000,
+        ty: 0,
+        spacingA: 50,
+        spacingB: 50,
+        cellWidth: 40,
+        cellHeight: 40,
+      }),
+    );
+
+    expect(cells.length).toBe(0);
+  });
+
+  test("finds the clicked visible cell", () => {
+    const frame = {
+      width: 100,
+      height: 100,
+      pixels: new Uint16Array(10000),
+    };
+    const grid = normalizeGridState({
+      enabled: true,
+      spacingA: 50,
+      spacingB: 50,
+      cellWidth: 50,
+      cellHeight: 50,
+    });
+
+    const cell = findGridCellAtPoint(frame, grid, 1, 30);
+    expect(cell?.id).toBe("-1:0");
+    expect(findGridCellAtPoint(frame, grid, 150, 150)).toBeNull();
+  });
+
+  test("builds bbox csv and clips edge-touching cells", () => {
+    const csv = buildBboxCsv(
+      {
+        width: 100,
+        height: 100,
+        pixels: new Uint16Array(10000),
+      },
+      normalizeGridState({
+        enabled: true,
+        spacingA: 50,
+        spacingB: 50,
+        cellWidth: 50,
+        cellHeight: 50,
+      }),
+      new Set(["0:0"]),
+    );
+
+    const lines = csv.split("\n");
+    expect(lines[0]).toBe("crop,x,y,w,h");
+    expect(lines.some((line) => line === "1,0,25,25,50")).toBe(true);
+    expect(lines.some((line) => line.includes(",25,25,50,50"))).toBe(false);
   });
 });

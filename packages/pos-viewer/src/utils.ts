@@ -22,6 +22,18 @@ export interface GridWheelViewport {
   modelHeight: number;
 }
 
+export interface GridCellRect {
+  id: string;
+  i: number;
+  j: number;
+  centerX: number;
+  centerY: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export type GridWheelIntent = "pan" | "rotate" | "size" | "spacing";
 
 export function clamp(value: number, min: number, max: number): number {
@@ -131,6 +143,102 @@ export function estimateGridDraw(
     stride,
     capped: stride > 1,
   };
+}
+
+function intersectsFrame(cell: GridCellRect, frameWidth: number, frameHeight: number): boolean {
+  return (
+    cell.x + cell.width >= 0 &&
+    cell.y + cell.height >= 0 &&
+    cell.x <= frameWidth &&
+    cell.y <= frameHeight
+  );
+}
+
+export function enumerateVisibleGridCells(frame: FrameResult, grid: GridState): GridCellRect[] {
+  const drawStats = estimateGridDraw(frame.width, frame.height, grid.spacingA, grid.spacingB);
+  const basis = gridBasis(grid.shape, grid.rotation, grid.spacingA, grid.spacingB);
+  const originX = frame.width / 2 + grid.tx;
+  const originY = frame.height / 2 + grid.ty;
+  const halfWidth = grid.cellWidth / 2;
+  const halfHeight = grid.cellHeight / 2;
+  const cells: GridCellRect[] = [];
+
+  for (let i = -drawStats.range; i <= drawStats.range; i += drawStats.stride) {
+    for (let j = -drawStats.range; j <= drawStats.range; j += drawStats.stride) {
+      const centerX = originX + i * basis.a.x + j * basis.b.x;
+      const centerY = originY + i * basis.a.y + j * basis.b.y;
+      const cell = {
+        id: `${i}:${j}`,
+        i,
+        j,
+        centerX,
+        centerY,
+        x: centerX - halfWidth,
+        y: centerY - halfHeight,
+        width: grid.cellWidth,
+        height: grid.cellHeight,
+      };
+
+      if (intersectsFrame(cell, frame.width, frame.height)) {
+        cells.push(cell);
+      }
+    }
+  }
+
+  return cells;
+}
+
+export function findGridCellAtPoint(
+  frame: FrameResult,
+  grid: GridState,
+  x: number,
+  y: number,
+): GridCellRect | null {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  const cells = enumerateVisibleGridCells(frame, grid);
+  for (let index = cells.length - 1; index >= 0; index -= 1) {
+    const cell = cells[index];
+    if (
+      cell &&
+      x >= cell.x &&
+      x <= cell.x + cell.width &&
+      y >= cell.y &&
+      y <= cell.y + cell.height
+    ) {
+      return cell;
+    }
+  }
+
+  return null;
+}
+
+export function buildBboxCsv(
+  frame: FrameResult,
+  grid: GridState,
+  excludedCellIds?: Iterable<string>,
+): string {
+  const excluded = excludedCellIds ? new Set(excludedCellIds) : new Set<string>();
+  const rows = ["crop,x,y,w,h"];
+  let crop = 0;
+
+  for (const cell of enumerateVisibleGridCells(frame, grid)) {
+    if (excluded.has(cell.id)) continue;
+
+    const clippedX = clamp(Math.round(cell.x), 0, frame.width);
+    const clippedY = clamp(Math.round(cell.y), 0, frame.height);
+    const clippedRight = clamp(Math.round(cell.x + cell.width), 0, frame.width);
+    const clippedBottom = clamp(Math.round(cell.y + cell.height), 0, frame.height);
+    const clippedWidth = clippedRight - clippedX;
+    const clippedHeight = clippedBottom - clippedY;
+
+    if (clippedWidth <= 0 || clippedHeight <= 0) continue;
+
+    rows.push(`${crop},${clippedX},${clippedY},${clippedWidth},${clippedHeight}`);
+    crop += 1;
+  }
+
+  return rows.join("\n");
 }
 
 function sampledValues(values: PixelArray): number[] {
