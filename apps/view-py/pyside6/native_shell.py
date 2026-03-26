@@ -14,6 +14,9 @@ from typing import Any
 import numpy as np
 import tifffile
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, QUrl, Slot
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -31,9 +34,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtWebView import QWebView
 
-VIEWPY_BRIDGE_PREFIX = "__viewpy__"
 TIFF_PATTERN = re.compile(
     r"^img_channel(?P<channel>\d+)_position(?P<position>\d+)_time(?P<time>\d+)_z(?P<z>\d+)\.tiff?$",
     re.IGNORECASE,
@@ -391,6 +392,16 @@ class LocalBackend:
         return save_bbox(root, pos, csv)
 
 
+class CanvasBridge(QObject):
+    def __init__(self, window: "ViewerMainWindow") -> None:
+        super().__init__()
+        self._window = window
+
+    @Slot(str)
+    def postMessage(self, message: str) -> None:
+        self._window.handle_canvas_message(message)
+
+
 class ViewerMainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -496,12 +507,17 @@ class ViewerMainWindow(QMainWindow):
         return self._wrap_panel(panel, 280)
 
     def _build_canvas_panel(self) -> QWidget:
-        self.view = QWebView()
-        self.view.titleChanged.connect(self._on_canvas_title_changed)
+        self.view = QWebEngineView()
+        settings = self.view.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        self._web_channel = QWebChannel(self.view.page())
+        self._canvas_bridge = CanvasBridge(self)
+        self._web_channel.registerObject("viewBridge", self._canvas_bridge)
+        self.view.page().setWebChannel(self._web_channel)
         self._canvas_ready = False
-        container = QWidget.createWindowContainer(self.view)
-        container.setMinimumSize(320, 240)
-        return container
+        self.view.setMinimumSize(320, 240)
+        return self.view
 
     def _build_right_panel(self) -> QWidget:
         panel = QWidget()
@@ -1007,11 +1023,9 @@ class ViewerMainWindow(QMainWindow):
         self._canvas_ready = True
         self._publish_canvas_state()
 
-    def _on_canvas_title_changed(self, title: str) -> None:
-        if not title.startswith(VIEWPY_BRIDGE_PREFIX):
-            return
+    def handle_canvas_message(self, message: str) -> None:
         try:
-            envelope = json.loads(title[len(VIEWPY_BRIDGE_PREFIX) :])
+            envelope = json.loads(message)
         except json.JSONDecodeError:
             return
 

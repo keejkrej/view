@@ -7,7 +7,6 @@ import {
   useRef,
 } from "react";
 
-import { cn } from "./lib/utils";
 import type {
   FrameResult,
   GridState,
@@ -118,12 +117,21 @@ function drawGridOverlay(
 
 function messageToneClasses(tone: ViewerCanvasStatusTone | undefined) {
   if (tone === "error") {
-    return "border-destructive/30 text-destructive";
+    return {
+      borderColor: "rgba(239, 68, 68, 0.35)",
+      color: "#fca5a5",
+    };
   }
   if (tone === "success") {
-    return "border-emerald-500/30 text-emerald-300";
+    return {
+      borderColor: "rgba(16, 185, 129, 0.35)",
+      color: "#6ee7b7",
+    };
   }
-  return "border-border text-muted-foreground";
+  return {
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    color: "rgba(255, 255, 255, 0.72)",
+  };
 }
 
 export default function ViewerCanvasSurface({
@@ -543,17 +551,27 @@ export default function ViewerCanvasSurface({
   );
 
   return (
-    <div className={cn("relative min-h-0 h-full w-full flex-1 overflow-hidden bg-transparent", className)} ref={viewportRef}>
+    <div
+      className={className}
+      ref={viewportRef}
+      style={{
+        position: "relative",
+        minHeight: 0,
+        height: "100%",
+        width: "100%",
+        flex: "1 1 auto",
+        overflow: "hidden",
+        background: "transparent",
+      }}
+    >
       <canvas
         ref={canvasRef}
-        className={cn(
-          "block h-full w-full",
-          selectionMode
-            ? "cursor-crosshair"
-            : grid.enabled
-              ? "cursor-grab active:cursor-grabbing"
-              : "cursor-default",
-        )}
+        style={{
+          display: "block",
+          height: "100%",
+          width: "100%",
+          cursor: selectionMode ? "crosshair" : grid.enabled ? "grab" : "default",
+        }}
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handleCanvasPointerMove}
         onPointerUp={handleCanvasPointerEnd}
@@ -562,14 +580,32 @@ export default function ViewerCanvasSurface({
         onContextMenu={(event) => event.preventDefault()}
       />
 
-      <div className="pointer-events-none absolute left-3 top-3 flex max-w-[78%] flex-wrap gap-1.5">
+      <div
+        style={{
+          pointerEvents: "none",
+          position: "absolute",
+          left: 12,
+          top: 12,
+          display: "flex",
+          maxWidth: "78%",
+          flexWrap: "wrap",
+          gap: 6,
+        }}
+      >
         {messages?.map((message, index) => (
           <div
             key={`${message.tone ?? "default"}:${message.text}:${index}`}
-            className={cn(
-              "rounded-lg border bg-card px-3 py-2 text-sm",
-              messageToneClasses(message.tone),
-            )}
+            style={{
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderRadius: 10,
+              background: "rgba(17, 24, 39, 0.92)",
+              padding: "8px 12px",
+              fontSize: 14,
+              lineHeight: 1.4,
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.25)",
+              ...messageToneClasses(message.tone),
+            }}
           >
             {message.text}
           </div>

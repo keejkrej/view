@@ -4,7 +4,7 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { cva, type VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from "lucide-react";
 
-import { cn } from "../lib/utils";
+import { cn } from "./utils";
 
 const Select = SelectPrimitive.Root;
 

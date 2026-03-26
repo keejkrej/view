@@ -1,11 +1,9 @@
-import { Slider } from "@base-ui/react";
 import { FolderOpen, X } from "lucide-react";
+import type { ChangeEvent } from "react";
 import {
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,11 +15,12 @@ import type {
   GridShape,
   GridState,
   PosViewerBackend,
+  ViewerCanvasStatusMessage,
   ViewerSelection,
   WorkspaceScan,
-} from "./types";
+} from "@view/view";
 import {
-  applyGridWheelGesture,
+  ViewerCanvasSurface,
   buildBboxCsv,
   clamp,
   coerceSelection,
@@ -29,18 +28,21 @@ import {
   createSelection,
   degreesToRadians,
   enumerateVisibleGridCells,
-  findGridCellAtPoint,
   getFrameContrastDomain,
-  gridBasis,
   makeFrameKey,
   normalizeGridState,
-  normalizeRadians,
   radiansToDegrees,
-} from "./utils";
-import { cn } from "./lib/utils";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+} from "@view/view";
+import {
+  Button,
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Slider,
+} from "@view/shared-ui";
 
 type SelectValue = number | string;
 
@@ -104,87 +106,6 @@ class FrameCache {
   }
 }
 
-function prepareFrameCanvas(frame: FrameResult) {
-  const canvas = document.createElement("canvas");
-  canvas.width = frame.width;
-  canvas.height = frame.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
-
-  const rgba = new Uint8ClampedArray(frame.width * frame.height * 4);
-  for (let i = 0; i < frame.pixels.length; i += 1) {
-    const value = clamp(Math.round(Number(frame.pixels[i] ?? 0)), 0, 255);
-    const offset = i * 4;
-    rgba[offset] = value;
-    rgba[offset + 1] = value;
-    rgba[offset + 2] = value;
-    rgba[offset + 3] = 255;
-  }
-
-  ctx.putImageData(new ImageData(rgba, frame.width, frame.height), 0, 0);
-  return canvas;
-}
-
-function drawGridOverlay(
-  ctx: CanvasRenderingContext2D,
-  viewportWidth: number,
-  viewportHeight: number,
-  frame: FrameResult,
-  grid: GridState,
-  excludedCellIds: ReadonlySet<string>,
-) {
-  if (!grid.enabled) return;
-
-  const scale = Math.min(viewportWidth / frame.width, viewportHeight / frame.height);
-  const drawWidth = frame.width * scale;
-  const drawHeight = frame.height * scale;
-  const drawX = (viewportWidth - drawWidth) / 2;
-  const drawY = (viewportHeight - drawHeight) / 2;
-  const originX = drawX + (frame.width / 2 + grid.tx) * scale;
-  const originY = drawY + (frame.height / 2 + grid.ty) * scale;
-  const basis = gridBasis(grid.shape, grid.rotation, grid.spacingA, grid.spacingB);
-  const scaledA = { x: basis.a.x * scale, y: basis.a.y * scale };
-  const scaledB = { x: basis.b.x * scale, y: basis.b.y * scale };
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(drawX, drawY, drawWidth, drawHeight);
-  ctx.clip();
-
-  for (const cell of enumerateVisibleGridCells(frame, grid)) {
-    const color = excludedCellIds.has(cell.id) ? "244, 63, 94" : "68, 151, 255";
-    ctx.fillStyle = `rgba(${color}, ${grid.opacity * 0.55})`;
-    ctx.strokeStyle = `rgba(${color}, ${Math.max(0.45, grid.opacity * 0.9)})`;
-    ctx.lineWidth = 1;
-    const scaledX = drawX + cell.x * scale;
-    const scaledY = drawY + cell.y * scale;
-    const scaledWidth = cell.width * scale;
-    const scaledHeight = cell.height * scale;
-    ctx.fillRect(scaledX, scaledY, scaledWidth, scaledHeight);
-    ctx.strokeRect(scaledX + 0.5, scaledY + 0.5, Math.max(0, scaledWidth - 1), Math.max(0, scaledHeight - 1));
-  }
-
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(originX, originY, 4, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.strokeStyle = "rgba(249,115,22,0.95)";
-  ctx.beginPath();
-  ctx.moveTo(originX, originY);
-  ctx.lineTo(originX + scaledA.x, originY + scaledA.y);
-  ctx.stroke();
-
-  ctx.strokeStyle = "rgba(34,197,94,0.95)";
-  ctx.beginPath();
-  ctx.moveTo(originX, originY);
-  ctx.lineTo(originX + scaledB.x, originY + scaledB.y);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
 function PanelCard({
   title,
   action,
@@ -243,7 +164,7 @@ function NumberInput({
       step={step}
       value={Number.isFinite(value) ? String(value) : ""}
       disabled={disabled}
-      onChange={(event) => onChange(Number(event.target.value))}
+      onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(Number(event.target.value))}
       className="text-sm"
     />
   );
@@ -263,7 +184,7 @@ function AppSelect<T extends SelectValue>({
   return (
     <Select<T>
       value={value}
-      onValueChange={(next) => next != null && onChange(next)}
+      onValueChange={(next: T | null) => next != null && onChange(next)}
       items={options}
       disabled={disabled}
       modal={false}
@@ -300,7 +221,7 @@ function AppSlider({
   disabled?: boolean;
 }) {
   return (
-    <Slider.Root
+    <Slider
       value={value}
       min={min}
       max={max}
@@ -308,15 +229,7 @@ function AppSlider({
       disabled={disabled}
       onValueChange={onChange}
       onValueCommitted={onCommit}
-      className="flex h-6 items-center"
-    >
-      <Slider.Control className="relative h-1.5 w-full rounded-full bg-input">
-        <Slider.Track className="relative h-full rounded-full">
-          <Slider.Indicator className="absolute h-full rounded-full bg-primary" />
-        </Slider.Track>
-        <Slider.Thumb className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background shadow-sm outline-none ring-2 ring-background" />
-      </Slider.Control>
-    </Slider.Root>
+    />
   );
 }
 
@@ -336,40 +249,12 @@ export default function ViewerWorkspace({
   onOpenWorkspace,
   onClearWorkspace,
 }: ViewerWorkspaceProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
   const frameCacheRef = useRef(new FrameCache());
-  const renderRafRef = useRef<number | null>(null);
-  const latestFrameRef = useRef<{ frame: FrameResult; prepared: HTMLCanvasElement } | null>(null);
-  const latestGridRef = useRef<GridState>(normalizeGridState(initialGrid));
-  const previewGridRef = useRef<GridState | null>(null);
-  const dprRef = useRef(1);
-  const selectStrokeRef = useRef<
-    | null
-    | {
-        pointerId: number;
-        lastPoint: { x: number; y: number };
-      }
-  >(null);
-  const dragRef = useRef<
-    | null
-    | {
-        mode: "pan" | "rotate" | "spacing";
-        startX: number;
-        startY: number;
-        startTx: number;
-        startTy: number;
-        startRotation: number;
-        startSpacingA: number;
-        startSpacingB: number;
-      }
-  >(null);
 
   const [scan, setScan] = useState<WorkspaceScan | null>(null);
   const [selection, setSelection] = useState<ViewerSelection | null>(null);
   const [grid, setGrid] = useState<GridState>(() => normalizeGridState(initialGrid));
   const [frame, setFrame] = useState<FrameResult | null>(null);
-  const [preparedFrame, setPreparedFrame] = useState<HTMLCanvasElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contrastMin, setContrastMin] = useState(0);
@@ -384,80 +269,6 @@ export default function ViewerWorkspace({
   const [saveState, setSaveState] = useState<SaveState>({ type: "idle", message: null });
   const [saving, setSaving] = useState(false);
 
-  const queueRender = useCallback(() => {
-    if (renderRafRef.current != null) return;
-    renderRafRef.current = window.requestAnimationFrame(() => {
-      renderRafRef.current = null;
-      const canvas = canvasRef.current;
-      const view = viewportRef.current;
-      const cached = latestFrameRef.current;
-      if (!canvas || !view) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const cssWidth = view.clientWidth;
-      const cssHeight = view.clientHeight;
-      const activeGrid = previewGridRef.current ?? latestGridRef.current;
-      const activeSelection = selection;
-      const activeExcluded = new Set(
-        activeSelection ? excludedCellIdsByPosition[activeSelection.pos] ?? [] : [],
-      );
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.save();
-      ctx.scale(dprRef.current, dprRef.current);
-
-      ctx.fillStyle = "#09090b";
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-      if (cached) {
-        const scale = Math.min(cssWidth / cached.frame.width, cssHeight / cached.frame.height);
-        const drawWidth = cached.frame.width * scale;
-        const drawHeight = cached.frame.height * scale;
-        const drawX = (cssWidth - drawWidth) / 2;
-        const drawY = (cssHeight - drawHeight) / 2;
-        ctx.fillStyle = "rgba(255,255,255,0.03)";
-        ctx.fillRect(drawX - 8, drawY - 8, drawWidth + 16, drawHeight + 16);
-        ctx.strokeStyle = "rgba(255,255,255,0.08)";
-        ctx.strokeRect(drawX - 8.5, drawY - 8.5, drawWidth + 17, drawHeight + 17);
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(cached.prepared, drawX, drawY, drawWidth, drawHeight);
-        drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid, activeExcluded);
-      } else {
-        ctx.fillStyle = "rgba(255,255,255,0.55)";
-        ctx.font = "500 14px 'DM Sans', 'Segoe UI Variable', sans-serif";
-        ctx.fillText(
-          !root ? "Open a workspace to load frames" : loading ? "Loading frame..." : "No frame loaded",
-          28,
-          42,
-        );
-      }
-
-      ctx.restore();
-    });
-  }, [excludedCellIdsByPosition, loading, root, selection]);
-
-  useEffect(() => {
-    latestFrameRef.current =
-      frame && preparedFrame
-        ? {
-            frame,
-            prepared: preparedFrame,
-          }
-        : null;
-    queueRender();
-  }, [frame, preparedFrame, queueRender]);
-
-  useEffect(() => {
-    queueRender();
-  }, [grid, queueRender]);
-
-  useEffect(() => {
-    latestGridRef.current = grid;
-    if (!dragRef.current) {
-      previewGridRef.current = null;
-    }
-  }, [grid]);
-
   useEffect(() => {
     onGridChange?.(grid);
   }, [grid, onGridChange]);
@@ -471,7 +282,6 @@ export default function ViewerWorkspace({
       setLoading(false);
       setError(null);
       setFrame(null);
-      setPreparedFrame(null);
       setScan(null);
       setSelection(null);
       setContrastMode("auto");
@@ -562,149 +372,15 @@ export default function ViewerWorkspace({
     };
   }, [backend, contrastMax, contrastMin, contrastMode, contrastRequestKey, root, selection]);
 
-  useEffect(() => {
-    if (!frame) return;
-    setPreparedFrame(prepareFrameCanvas(frame));
-  }, [frame]);
-
-  useLayoutEffect(() => {
-    const view = viewportRef.current;
-    const canvas = canvasRef.current;
-    if (!view || !canvas) return;
-
-    const resize = () => {
-      const dpr = window.devicePixelRatio || 1;
-      dprRef.current = dpr;
-      canvas.width = Math.max(1, Math.floor(view.clientWidth * dpr));
-      canvas.height = Math.max(1, Math.floor(view.clientHeight * dpr));
-      canvas.style.width = `${view.clientWidth}px`;
-      canvas.style.height = `${view.clientHeight}px`;
-      queueRender();
-    };
-
-    const observer = new ResizeObserver(resize);
-    observer.observe(view);
-    resize();
-    return () => observer.disconnect();
-  }, [queueRender]);
-
   const setSelectionKey = useCallback(
     <K extends keyof ViewerSelection>(key: K, value: ViewerSelection[K]) => {
       setSelection((current) => {
         if (!current) return current;
         return { ...current, [key]: value };
       });
+      setSaveState({ type: "idle", message: null });
     },
     [],
-  );
-
-  const beginDrag = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (!frame || !grid.enabled) return;
-      let mode: "pan" | "rotate" | "spacing" | null = null;
-      if (event.button === 0) {
-        mode = "pan";
-      } else if (event.button === 1) {
-        mode = "spacing";
-      } else if (event.button === 2) {
-        mode = "rotate";
-      }
-      if (!mode) return;
-      dragRef.current = {
-        mode,
-        startX: event.clientX,
-        startY: event.clientY,
-        startTx: grid.tx,
-        startTy: grid.ty,
-        startRotation: grid.rotation,
-        startSpacingA: grid.spacingA,
-        startSpacingB: grid.spacingB,
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [frame, grid.enabled, grid.rotation, grid.spacingA, grid.spacingB, grid.tx, grid.ty],
-  );
-
-  const moveDrag = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      const drag = dragRef.current;
-      const cached = latestFrameRef.current;
-      const view = viewportRef.current;
-      if (!drag || !cached || !view) return;
-      const scale = Math.min(view.clientWidth / cached.frame.width, view.clientHeight / cached.frame.height);
-      const deltaX = event.clientX - drag.startX;
-      const deltaY = event.clientY - drag.startY;
-      if (drag.mode === "pan") {
-        previewGridRef.current = {
-          ...latestGridRef.current,
-          tx: drag.startTx + deltaX / scale,
-          ty: drag.startTy + deltaY / scale,
-        };
-      } else if (drag.mode === "rotate") {
-        previewGridRef.current = {
-          ...latestGridRef.current,
-          rotation: normalizeRadians(
-            drag.startRotation + degreesToRadians((deltaX / Math.max(1, view.clientWidth)) * 220),
-          ),
-        };
-      } else {
-        const factor = Math.max(0.01, 1 + (deltaX / Math.max(1, view.clientWidth)) * 2.5);
-        previewGridRef.current = normalizeGridState({
-          ...latestGridRef.current,
-          spacingA: drag.startSpacingA * factor,
-          spacingB: drag.startSpacingB * factor,
-        });
-      }
-      queueRender();
-    },
-    [queueRender],
-  );
-
-  const endDrag = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      const previewGrid = previewGridRef.current;
-      dragRef.current = null;
-      previewGridRef.current = null;
-      if (previewGrid) {
-        setGrid(previewGrid);
-      } else {
-        queueRender();
-      }
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    [queueRender],
-  );
-
-  const handleWheel = useCallback(
-    (event: React.WheelEvent<HTMLCanvasElement>) => {
-      if (!frame || !grid.enabled || selectionMode) return;
-      event.preventDefault();
-      const view = viewportRef.current;
-      const displayWidth = view?.clientWidth ?? frame.width;
-      const displayHeight = view?.clientHeight ?? frame.height;
-      const nextGrid = applyGridWheelGesture(
-        latestGridRef.current,
-        {
-          deltaMode: event.deltaMode,
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-        },
-        {
-          displayWidth,
-          displayHeight,
-          modelWidth: frame.width,
-          modelHeight: frame.height,
-        },
-      );
-      previewGridRef.current = null;
-      setGrid(nextGrid);
-    },
-    [frame, grid.enabled, selectionMode],
   );
 
   const hasScan = !!scan && scan.positions.length > 0;
@@ -730,11 +406,17 @@ export default function ViewerWorkspace({
     return index >= 0 ? index : 0;
   }, [selection, timeValues]);
   const displayedTime = timeValues[timeSliderIndex] ?? selection?.time ?? 0;
-  const timeSliderMax = Math.max(1, timeValues.length - 1);
+  const timeSliderMax = Math.max(0, timeValues.length - 1);
 
   useEffect(() => {
     setTimeSliderIndex(selectedTimeIndex);
   }, [selectedTimeIndex]);
+
+  useEffect(() => {
+    if (!grid.enabled || !frame) {
+      setSelectionMode(false);
+    }
+  }, [frame, grid.enabled]);
 
   const activeExcludedCellIds = useMemo(
     () => new Set(selection ? excludedCellIdsByPosition[selection.pos] ?? [] : []),
@@ -749,35 +431,6 @@ export default function ViewerWorkspace({
     [activeExcludedCellIds, visibleCells],
   );
   const includedVisibleCount = visibleCells.length - excludedVisibleCount;
-
-  const getFramePoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const cached = latestFrameRef.current;
-    const view = viewportRef.current;
-    if (!cached || !view) return null;
-
-    const bounds = view.getBoundingClientRect();
-    const scale = Math.min(bounds.width / cached.frame.width, bounds.height / cached.frame.height);
-    const drawWidth = cached.frame.width * scale;
-    const drawHeight = cached.frame.height * scale;
-    const drawX = (bounds.width - drawWidth) / 2;
-    const drawY = (bounds.height - drawHeight) / 2;
-    const pointerX = event.clientX - bounds.left;
-    const pointerY = event.clientY - bounds.top;
-
-    if (
-      pointerX < drawX ||
-      pointerX > drawX + drawWidth ||
-      pointerY < drawY ||
-      pointerY > drawY + drawHeight
-    ) {
-      return null;
-    }
-
-    return {
-      x: (pointerX - drawX) / scale,
-      y: (pointerY - drawY) / scale,
-    };
-  }, []);
 
   const addExcludedCells = useCallback((position: number, cellIds: Iterable<string>) => {
     setExcludedCellIdsByPosition((current) => {
@@ -799,113 +452,28 @@ export default function ViewerWorkspace({
       }
       return next;
     });
+    setSaveState({ type: "idle", message: null });
   }, []);
 
-  const excludeCellsAlongStroke = useCallback(
-    (
-      position: number,
-      startPoint: { x: number; y: number },
-      endPoint: { x: number; y: number },
-      activeFrame: FrameResult,
-      activeGrid: GridState,
-    ) => {
-      const sampleDistance = Math.max(4, Math.min(activeGrid.cellWidth, activeGrid.cellHeight) / 4);
-      const distance = Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y);
-      const steps = Math.max(1, Math.ceil(distance / sampleDistance));
-      const hitCellIds = new Set<string>();
+  const messages = useMemo<ViewerCanvasStatusMessage[]>(() => {
+    const next: ViewerCanvasStatusMessage[] = [];
+    if (error) {
+      next.push({ tone: "error", text: error });
+    }
+    if (saveState.message) {
+      next.push({
+        tone: saveState.type === "error" ? "error" : "success",
+        text: saveState.message,
+      });
+    }
+    return next;
+  }, [error, saveState]);
 
-      for (let step = 0; step <= steps; step += 1) {
-        const t = step / steps;
-        const x = startPoint.x + (endPoint.x - startPoint.x) * t;
-        const y = startPoint.y + (endPoint.y - startPoint.y) * t;
-        const cell = findGridCellAtPoint(activeFrame, activeGrid, x, y);
-        if (cell) {
-          hitCellIds.add(cell.id);
-        }
-      }
-
-      if (hitCellIds.size > 0) {
-        addExcludedCells(position, hitCellIds);
-      }
-    },
-    [addExcludedCells],
-  );
-
-  const handleCanvasPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode && event.button === 0 && frame && selection) {
-        const point = getFramePoint(event);
-        if (!point) {
-          event.preventDefault();
-          return;
-        }
-        selectStrokeRef.current = {
-          pointerId: event.pointerId,
-          lastPoint: point,
-        };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        excludeCellsAlongStroke(selection.pos, point, point, frame, latestGridRef.current);
-        event.preventDefault();
-        return;
-      }
-
-      if (selectionMode) {
-        event.preventDefault();
-        return;
-      }
-
-      beginDrag(event);
-    },
-    [beginDrag, excludeCellsAlongStroke, frame, getFramePoint, selection, selectionMode],
-  );
-
-  const handleCanvasPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode) {
-        const stroke = selectStrokeRef.current;
-        if (!stroke || stroke.pointerId !== event.pointerId || !frame || !selection) {
-          event.preventDefault();
-          return;
-        }
-
-        const point = getFramePoint(event);
-        if (!point) {
-          event.preventDefault();
-          return;
-        }
-
-        excludeCellsAlongStroke(selection.pos, stroke.lastPoint, point, frame, latestGridRef.current);
-        selectStrokeRef.current = {
-          pointerId: stroke.pointerId,
-          lastPoint: point,
-        };
-        event.preventDefault();
-        return;
-      }
-
-      moveDrag(event);
-    },
-    [excludeCellsAlongStroke, frame, getFramePoint, moveDrag, selection, selectionMode],
-  );
-
-  const handleCanvasPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode) {
-        const stroke = selectStrokeRef.current;
-        if (stroke?.pointerId === event.pointerId) {
-          selectStrokeRef.current = null;
-        }
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        event.preventDefault();
-        return;
-      }
-
-      endDrag(event);
-    },
-    [endDrag, selectionMode],
-  );
+  const emptyText = useMemo(() => {
+    if (!root) return "Open a workspace to load frames";
+    if (scan && scan.positions.length === 0) return "No frames found in workspace";
+    return "No frame loaded";
+  }, [root, scan]);
 
   const handleSave = useCallback(async () => {
     if (!root || !selection || !frame) return;
@@ -1072,54 +640,24 @@ export default function ViewerWorkspace({
             <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
               <div className="flex h-full min-h-0 flex-col overflow-hidden">
                 <div className="m-3 flex min-h-0 flex-1 overflow-hidden md:m-4 md:mt-3">
-                  <div className="flex min-h-0 h-full w-full flex-1">
-                    <div
-                      ref={viewportRef}
-                      className="relative min-h-0 h-full w-full flex-1 overflow-hidden bg-transparent"
-                    >
-                      <canvas
-                        ref={canvasRef}
-                        className={cn(
-                          "block h-full w-full",
-                          selectionMode
-                            ? "cursor-crosshair"
-                            : grid.enabled
-                              ? "cursor-grab active:cursor-grabbing"
-                              : "cursor-default",
-                        )}
-                        onPointerDown={handleCanvasPointerDown}
-                        onPointerMove={handleCanvasPointerMove}
-                        onPointerUp={handleCanvasPointerEnd}
-                        onPointerCancel={handleCanvasPointerEnd}
-                        onWheel={handleWheel}
-                        onContextMenu={(event) => event.preventDefault()}
-                      />
-
-                      <div className="pointer-events-none absolute left-3 top-3 flex max-w-[78%] flex-wrap gap-1.5">
-                        {error ? (
-                          <div className="rounded-lg border border-destructive/30 bg-card px-3 py-2 text-sm text-destructive">
-                            {error}
-                          </div>
-                        ) : null}
-                        {saveState.message ? (
-                          <div
-                            className={cn(
-                              "rounded-lg border bg-card px-3 py-2 text-sm",
-                              saveState.type === "error"
-                                ? "border-destructive/30 text-destructive"
-                                : "border-emerald-500/30 text-emerald-300",
-                            )}
-                          >
-                            {saveState.message}
-                          </div>
-                        ) : null}
-                        {!root ? (
-                          <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                            No workspace selected. Open a workspace to start.
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
+                  <div className="flex min-h-0 h-full w-full flex-1 overflow-hidden rounded-2xl border border-border/60 bg-black/10">
+                    <ViewerCanvasSurface
+                      frame={frame}
+                      grid={grid}
+                      excludedCellIds={activeExcludedCellIds}
+                      selectionMode={selectionMode}
+                      loading={loading && !frame}
+                      emptyText={emptyText}
+                      messages={messages}
+                      onGridChange={(nextGrid) => {
+                        setGrid(nextGrid);
+                        setSaveState({ type: "idle", message: null });
+                      }}
+                      onExcludeCells={(cellIds) => {
+                        if (!selection || cellIds.length === 0) return;
+                        addExcludedCells(selection.pos, cellIds);
+                      }}
+                    />
                   </div>
                 </div>
               </div>

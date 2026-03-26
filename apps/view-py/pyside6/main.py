@@ -8,10 +8,6 @@ if str(HERE) not in sys.path:
 
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "")
 
-from PySide6 import QtWebView
-
-QtWebView.QtWebView.initialize()
-
 from native_shell import main
 
 

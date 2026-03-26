@@ -67,16 +67,6 @@ export interface ViewerSelection {
   z: number;
 }
 
-export interface PosViewerProps {
-  root: string;
-  dataSource: PosViewerDataSource;
-  initialGrid?: Partial<GridState>;
-  initialSelection?: Partial<ViewerSelection>;
-  onGridChange?: (grid: GridState) => void;
-  onSelectionChange?: (selection: ViewerSelection) => void;
-  className?: string;
-}
-
 export interface ContrastWindow {
   min: number;
   max: number;
@@ -100,17 +90,6 @@ export interface SaveBboxResponse {
 
 export interface PosViewerBackend extends PosViewerDataSource {
   saveBbox(root: string, pos: number, csv: string): Promise<SaveBboxResponse>;
-}
-
-export interface StorageLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-}
-
-export interface PosViewerHost {
-  pickWorkspace(): Promise<string | null>;
-  storage?: StorageLike;
 }
 
 export interface ViewerCanvasSurfaceProps {

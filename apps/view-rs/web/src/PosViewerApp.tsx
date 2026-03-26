@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
-import type { GridState, PosViewerBackend, PosViewerHost, StorageLike } from "./types";
-import { normalizeGridState } from "./utils";
+import type { GridState, PosViewerBackend } from "@view/view";
+import { normalizeGridState } from "@view/view";
+
 import ViewerWorkspace from "./ViewerWorkspace";
 
 const LAST_ROOT_KEY = "view.lastRoot";
@@ -10,8 +11,13 @@ const EXCLUDED_BBOX_KEY_PREFIX = "view.excludedBboxes";
 
 type ExcludedCellIdsByPosition = Record<number, string[]>;
 
-function resolveStorage(storage?: StorageLike): StorageLike | null {
-  if (storage) return storage;
+interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+function resolveStorage(): StorageLike | null {
   if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
   return null;
 }
@@ -60,11 +66,11 @@ function readStoredExcludedCellIds(
 
 interface PosViewerAppProps {
   backend: PosViewerBackend;
-  host: PosViewerHost;
+  pickWorkspace: () => Promise<string | null>;
 }
 
-export default function PosViewerApp({ backend, host }: PosViewerAppProps) {
-  const storage = resolveStorage(host.storage);
+export default function PosViewerApp({ backend, pickWorkspace }: PosViewerAppProps) {
+  const storage = resolveStorage();
   const [root, setRoot] = useState<string>(() => storage?.getItem(LAST_ROOT_KEY) ?? "");
   const [initialGrid] = useState<GridState | undefined>(() => readStoredGrid(storage));
   const [excludedCellIdsByPosition, setExcludedCellIdsByPosition] = useState<ExcludedCellIdsByPosition>(
@@ -93,7 +99,7 @@ export default function PosViewerApp({ backend, host }: PosViewerAppProps) {
   }, [excludedCellIdsByPosition, root, storage]);
 
   const handlePickWorkspace = async () => {
-    const selected = await host.pickWorkspace();
+    const selected = await pickWorkspace();
     if (selected) setRoot(selected);
   };
 

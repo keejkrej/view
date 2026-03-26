@@ -11,6 +11,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
+      "@view/shared-ui/theme.css": resolve(__dirname, "../../packages/shared/ui/src/theme.css"),
+      "@view/shared-ui": resolve(__dirname, "../../packages/shared/ui/src/index.ts"),
       "@view/view": resolve(__dirname, "../../packages/view/src/index.ts"),
     },
   },

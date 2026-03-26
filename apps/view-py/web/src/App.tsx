@@ -123,26 +123,28 @@ export default function App() {
   const frame = useMemo(() => decodeFrame(surfaceState.frame), [surfaceState.frame]);
 
   return (
-    <ViewerCanvasSurface
-      frame={frame}
-      grid={surfaceState.grid}
-      excludedCellIds={surfaceState.excludedCellIds}
-      selectionMode={surfaceState.selectionMode}
-      loading={surfaceState.loading}
-      emptyText={surfaceState.emptyText}
-      messages={surfaceState.messages}
-      onGridChange={(nextGrid) => {
-        setSurfaceState((current) => ({ ...current, grid: nextGrid }));
-        sendGridChanged(nextGrid);
-      }}
-      onExcludeCells={(cellIds) => {
-        if (cellIds.length === 0) return;
-        setSurfaceState((current) => ({
-          ...current,
-          excludedCellIds: mergeExcludedCellIds(current.excludedCellIds, cellIds),
-        }));
-        sendExcludedCellsAdded(cellIds);
-      }}
-    />
+    <div style={{ height: "100%", width: "100%", overflow: "hidden" }}>
+      <ViewerCanvasSurface
+        frame={frame}
+        grid={surfaceState.grid}
+        excludedCellIds={surfaceState.excludedCellIds}
+        selectionMode={surfaceState.selectionMode}
+        loading={surfaceState.loading}
+        emptyText={surfaceState.emptyText}
+        messages={surfaceState.messages}
+        onGridChange={(nextGrid) => {
+          setSurfaceState((current) => ({ ...current, grid: nextGrid }));
+          sendGridChanged(nextGrid);
+        }}
+        onExcludeCells={(cellIds) => {
+          if (cellIds.length === 0) return;
+          setSurfaceState((current) => ({
+            ...current,
+            excludedCellIds: mergeExcludedCellIds(current.excludedCellIds, cellIds),
+          }));
+          sendExcludedCellsAdded(cellIds);
+        }}
+      />
+    </div>
   );
 }
