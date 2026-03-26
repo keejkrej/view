@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "@view/shared-ui/theme.css";
 import App from "./App";
+import "./app.css";
 
 document.documentElement.classList.add("dark");
 
