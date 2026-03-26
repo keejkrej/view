@@ -422,7 +422,7 @@ class ViewerMainWindow(QMainWindow):
         self._loading = False
         self._canvas_ready = False
 
-        self.setWindowTitle("Pos Viewer (PySide6)")
+        self.setWindowTitle("View")
         self.resize(1480, 980)
         self._build_ui()
         self._sync_ui()

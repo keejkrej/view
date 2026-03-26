@@ -40,7 +40,7 @@ export interface FrameResult {
   appliedContrast?: ContrastWindow;
 }
 
-export interface PosViewerDataSource {
+export interface ViewerDataSource {
   scanWorkspace(root: string): Promise<WorkspaceScan>;
   loadFrame(root: string, request: FrameRequest, options?: LoadFrameOptions): Promise<FrameResult>;
 }
@@ -88,7 +88,7 @@ export interface SaveBboxResponse {
   error?: string;
 }
 
-export interface PosViewerBackend extends PosViewerDataSource {
+export interface ViewerBackend extends ViewerDataSource {
   saveBbox(root: string, pos: number, csv: string): Promise<SaveBboxResponse>;
 }
 

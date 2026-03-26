@@ -14,8 +14,8 @@ import type {
   FrameResult,
   GridShape,
   GridState,
-  PosViewerBackend,
   ViewerCanvasStatusMessage,
+  ViewerBackend,
   ViewerSelection,
   WorkspaceScan,
 } from "@view/view";
@@ -62,7 +62,7 @@ type ContrastMode = "auto" | "manual";
 
 interface ViewerWorkspaceProps {
   root: string;
-  backend: PosViewerBackend;
+  backend: ViewerBackend;
   initialGrid?: Partial<GridState>;
   initialSelection?: Partial<ViewerSelection>;
   initialExcludedCellIdsByPosition?: ExcludedCellIdsByPosition;

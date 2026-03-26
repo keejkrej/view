@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pos Viewer",
+  "productName": "View",
   "version": "0.1.0",
   "identifier": "com.view.posviewer",
   "build": {
@@ -15,7 +15,7 @@
   "app": {
     "windows": [
       {
-        "title": "Pos Viewer",
+        "title": "View",
         "width": 1480,
         "height": 980
       }

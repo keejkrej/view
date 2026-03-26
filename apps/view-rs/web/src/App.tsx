@@ -1,13 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createWebSocketBackend } from "@view/view";
 
-import PosViewerApp from "./PosViewerApp";
+import ViewApp from "./ViewApp";
 
 const backend = createWebSocketBackend({ url: "ws://127.0.0.1:47834" });
 
 export default function App() {
   return (
-    <PosViewerApp
+    <ViewApp
       backend={backend}
       pickWorkspace={() => invoke<string | null>("pick_workspace")}
     />

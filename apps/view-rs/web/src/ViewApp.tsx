@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { GridState, PosViewerBackend } from "@view/view";
+import type { GridState, ViewerBackend } from "@view/view";
 import { normalizeGridState } from "@view/view";
 
 import ViewerWorkspace from "./ViewerWorkspace";
@@ -64,12 +64,12 @@ function readStoredExcludedCellIds(
   }
 }
 
-interface PosViewerAppProps {
-  backend: PosViewerBackend;
+interface ViewAppProps {
+  backend: ViewerBackend;
   pickWorkspace: () => Promise<string | null>;
 }
 
-export default function PosViewerApp({ backend, pickWorkspace }: PosViewerAppProps) {
+export default function ViewApp({ backend, pickWorkspace }: ViewAppProps) {
   const storage = resolveStorage();
   const [root, setRoot] = useState<string>(() => storage?.getItem(LAST_ROOT_KEY) ?? "");
   const [initialGrid] = useState<GridState | undefined>(() => readStoredGrid(storage));

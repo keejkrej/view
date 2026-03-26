@@ -2,8 +2,8 @@ import type {
   FrameRequest,
   FrameResult,
   LoadFrameOptions,
-  PosViewerBackend,
   SaveBboxResponse,
+  ViewerBackend,
   WorkspaceScan,
 } from "./types";
 
@@ -46,7 +46,7 @@ function decodeBase64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-class WebSocketBackend implements PosViewerBackend {
+class WebSocketBackend implements ViewerBackend {
   private readonly url: string;
 
   private socketPromise: Promise<WebSocket> | null = null;
@@ -159,6 +159,6 @@ class WebSocketBackend implements PosViewerBackend {
   }
 }
 
-export function createWebSocketBackend(options: WebSocketBackendOptions): PosViewerBackend {
+export function createWebSocketBackend(options: WebSocketBackendOptions): ViewerBackend {
   return new WebSocketBackend(options);
 }
