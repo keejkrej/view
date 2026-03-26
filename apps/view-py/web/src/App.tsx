@@ -1,57 +1,75 @@
 import {
   ViewerCanvasSurface,
   createDefaultGrid,
+  createWebSocketBackend,
+  makeFrameKey,
   normalizeGridState,
+  toggleCellIds,
   type ContrastWindow,
+  type FrameRequest,
   type FrameResult,
   type GridState,
-  type PixelType,
+  type ViewerBackend,
   type ViewerCanvasStatusMessage,
 } from "@view/view";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { installHostStateListener, sendExcludedCellsAdded, sendGridChanged, type HostCanvasState } from "./host";
+import {
+  installHostStateListener,
+  sendExcludedCellsToggled,
+  sendFrameLoaded,
+  sendFrameLoadFailed,
+  sendGridChanged,
+  type HostCanvasState,
+} from "./host";
 
-interface HostFramePayload {
-  width: number;
-  height: number;
-  dataBase64: string;
-  pixelType?: PixelType;
-  contrastDomain?: ContrastWindow;
-  suggestedContrast?: ContrastWindow;
-  appliedContrast?: ContrastWindow;
-}
+type ContrastMode = "auto" | "manual";
 
 interface SurfaceState {
-  frame: HostFramePayload | null;
+  backendUrl: string | null;
+  root: string | null;
+  request: FrameRequest | null;
+  contrastMode: ContrastMode;
+  contrast: ContrastWindow | null;
   grid: GridState;
   excludedCellIds: string[];
   selectionMode: boolean;
-  loading: boolean;
   emptyText: string;
   messages: ViewerCanvasStatusMessage[];
 }
 
-function decodeBase64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+interface CachedFrame {
+  frame: FrameResult;
 }
 
-function decodeFrame(frame: HostFramePayload | null): FrameResult | null {
-  if (!frame) return null;
-  return {
-    width: frame.width,
-    height: frame.height,
-    pixels: decodeBase64ToBytes(frame.dataBase64),
-    pixelType: frame.pixelType ?? "uint8",
-    contrastDomain: frame.contrastDomain,
-    suggestedContrast: frame.suggestedContrast,
-    appliedContrast: frame.appliedContrast,
-  };
+class FrameCache {
+  private readonly limit: number;
+
+  private readonly map = new Map<string, CachedFrame>();
+
+  constructor(limit = 12) {
+    this.limit = limit;
+  }
+
+  get(key: string): CachedFrame | undefined {
+    const found = this.map.get(key);
+    if (!found) return undefined;
+    this.map.delete(key);
+    this.map.set(key, found);
+    return found;
+  }
+
+  set(key: string, value: CachedFrame) {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    }
+    this.map.set(key, value);
+    while (this.map.size > this.limit) {
+      const first = this.map.keys().next().value;
+      if (!first) break;
+      this.map.delete(first);
+    }
+  }
 }
 
 function normalizeMessages(messages: HostCanvasState["messages"]): ViewerCanvasStatusMessage[] {
@@ -71,56 +89,148 @@ function normalizeMessages(messages: HostCanvasState["messages"]): ViewerCanvasS
   });
 }
 
-function mergeExcludedCellIds(current: string[], added: string[]) {
-  if (added.length === 0) return current;
-  const merged = new Set(current);
-  let changed = false;
-  for (const cellId of added) {
-    if (!merged.has(cellId)) {
-      merged.add(cellId);
-      changed = true;
-    }
-  }
-  return changed ? Array.from(merged).sort() : current;
-}
-
 function normalizeHostState(next: HostCanvasState): SurfaceState {
+  const request = next.request;
+  const contrast = next.contrast;
+  const contrastMode: ContrastMode = contrast?.mode === "manual" ? "manual" : "auto";
   return {
-    frame:
-      next.frame &&
-      typeof next.frame === "object" &&
-      typeof next.frame.width === "number" &&
-      typeof next.frame.height === "number" &&
-      typeof next.frame.dataBase64 === "string"
-        ? next.frame
+    backendUrl: typeof next.backendUrl === "string" && next.backendUrl ? next.backendUrl : null,
+    root: typeof next.root === "string" && next.root ? next.root : null,
+    request:
+      request &&
+      typeof request === "object" &&
+      typeof request.pos === "number" &&
+      typeof request.channel === "number" &&
+      typeof request.time === "number" &&
+      typeof request.z === "number"
+        ? request
+        : null,
+    contrastMode,
+    contrast:
+      contrastMode === "manual" &&
+      contrast?.value &&
+      typeof contrast.value.min === "number" &&
+      typeof contrast.value.max === "number"
+        ? { min: contrast.value.min, max: contrast.value.max }
         : null,
     grid: normalizeGridState(next.grid ?? createDefaultGrid()),
     excludedCellIds: Array.isArray(next.excludedCellIds)
       ? next.excludedCellIds.filter((cellId): cellId is string => typeof cellId === "string")
       : [],
     selectionMode: next.selectionMode === true,
-    loading: next.loading === true,
     emptyText: typeof next.emptyText === "string" ? next.emptyText : "Open a workspace to load frames",
     messages: normalizeMessages(next.messages),
   };
 }
 
+function loadKeyForState(state: SurfaceState): string | null {
+  if (!state.root || !state.request) return null;
+  const contrastKey =
+    state.contrastMode === "manual" && state.contrast
+      ? `${state.contrast.min}:${state.contrast.max}`
+      : "auto";
+  return `${makeFrameKey(state.root, state.request)}:${contrastKey}`;
+}
+
+function notifyFrameLoaded(frame: FrameResult) {
+  sendFrameLoaded({
+    width: frame.width,
+    height: frame.height,
+    contrastDomain: frame.contrastDomain,
+    suggestedContrast: frame.suggestedContrast,
+    appliedContrast: frame.appliedContrast,
+  });
+}
+
 export default function App() {
+  const frameCacheRef = useRef(new FrameCache());
   const [surfaceState, setSurfaceState] = useState<SurfaceState>(() =>
     normalizeHostState({
-      frame: null,
+      root: null,
+      request: null,
+      contrast: { mode: "auto", value: null },
       grid: createDefaultGrid(),
       excludedCellIds: [],
       selectionMode: false,
-      loading: false,
       emptyText: "Open a workspace to load frames",
       messages: [],
     }),
   );
+  const [frame, setFrame] = useState<FrameResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => installHostStateListener((next) => setSurfaceState(normalizeHostState(next))), []);
 
-  const frame = useMemo(() => decodeFrame(surfaceState.frame), [surfaceState.frame]);
+  const backend = useMemo<ViewerBackend | null>(() => {
+    if (!surfaceState.backendUrl) return null;
+    return createWebSocketBackend({ url: surfaceState.backendUrl });
+  }, [surfaceState.backendUrl]);
+
+  const requestKey = useMemo(() => loadKeyForState(surfaceState), [surfaceState]);
+  const requestRoot = surfaceState.root;
+  const requestSelection = surfaceState.request;
+  const requestContrast =
+    surfaceState.contrastMode === "manual" && surfaceState.contrast ? surfaceState.contrast : undefined;
+
+  useEffect(() => {
+    if (!backend || !requestRoot || !requestSelection || !requestKey) {
+      setFrame(null);
+      setLoading(false);
+      setLoadError(null);
+      return;
+    }
+
+    const cached = frameCacheRef.current.get(requestKey);
+    if (cached) {
+      setFrame(cached.frame);
+      setLoading(false);
+      setLoadError(null);
+      notifyFrameLoaded(cached.frame);
+      return;
+    }
+
+    let cancelled = false;
+    setFrame(null);
+    setLoading(true);
+    setLoadError(null);
+
+    void (async () => {
+      try {
+        const loaded = await backend.loadFrame(
+          requestRoot,
+          requestSelection,
+          requestContrast ? { contrast: requestContrast } : undefined,
+        );
+        if (cancelled) return;
+        frameCacheRef.current.set(requestKey, { frame: loaded });
+        setFrame(loaded);
+        notifyFrameLoaded(loaded);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setFrame(null);
+        setLoadError(message);
+        sendFrameLoadFailed(message);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, requestContrast, requestKey, requestRoot, requestSelection]);
+
+  const messages = useMemo(() => {
+    if (!loadError) return surfaceState.messages;
+    if (surfaceState.messages.some((message) => message.tone === "error" && message.text === loadError)) {
+      return surfaceState.messages;
+    }
+    return [...surfaceState.messages, { tone: "error" as const, text: loadError }];
+  }, [loadError, surfaceState.messages]);
 
   return (
     <div style={{ height: "100%", width: "100%", overflow: "hidden" }}>
@@ -129,20 +239,20 @@ export default function App() {
         grid={surfaceState.grid}
         excludedCellIds={surfaceState.excludedCellIds}
         selectionMode={surfaceState.selectionMode}
-        loading={surfaceState.loading}
+        loading={loading}
         emptyText={surfaceState.emptyText}
-        messages={surfaceState.messages}
+        messages={messages}
         onGridChange={(nextGrid) => {
           setSurfaceState((current) => ({ ...current, grid: nextGrid }));
           sendGridChanged(nextGrid);
         }}
-        onExcludeCells={(cellIds) => {
+        onToggleCells={(cellIds) => {
           if (cellIds.length === 0) return;
           setSurfaceState((current) => ({
             ...current,
-            excludedCellIds: mergeExcludedCellIds(current.excludedCellIds, cellIds),
+            excludedCellIds: toggleCellIds(current.excludedCellIds, cellIds),
           }));
-          sendExcludedCellsAdded(cellIds);
+          sendExcludedCellsToggled(cellIds);
         }}
       />
     </div>

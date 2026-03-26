@@ -1,4 +1,9 @@
-import type { GridState, PixelType, ViewerCanvasStatusMessage } from "@view/view";
+import type {
+  ContrastWindow,
+  FrameRequest,
+  GridState,
+  ViewerCanvasStatusMessage,
+} from "@view/view";
 
 declare global {
   interface Window {
@@ -19,25 +24,31 @@ declare global {
   }
 }
 
-interface HostFramePayload {
-  width: number;
-  height: number;
-  dataBase64: string;
-  pixelType?: PixelType;
-  contrastDomain?: { min: number; max: number };
-  suggestedContrast?: { min: number; max: number };
-  appliedContrast?: { min: number; max: number };
+interface HostContrastState {
+  mode?: "auto" | "manual";
+  value?: ContrastWindow | null;
 }
 
 export interface HostCanvasState {
-  frame?: HostFramePayload | null;
+  backendUrl?: string;
+  root?: string | null;
+  request?: FrameRequest | null;
+  contrast?: HostContrastState;
   grid?: Partial<GridState>;
   excludedCellIds?: string[];
   selectionMode?: boolean;
-  loading?: boolean;
   emptyText?: string;
   messages?: ViewerCanvasStatusMessage[];
 }
+
+interface FrameLoadedPayload {
+  width: number;
+  height: number;
+  contrastDomain?: ContrastWindow;
+  suggestedContrast?: ContrastWindow;
+  appliedContrast?: ContrastWindow;
+}
+
 let messageId = 0;
 let bridgePromise: Promise<{ postMessage: (message: string) => void } | null> | null = null;
 
@@ -112,6 +123,14 @@ export function sendGridChanged(grid: GridState) {
   emitHostEvent("gridChanged", grid);
 }
 
-export function sendExcludedCellsAdded(cellIds: string[]) {
-  emitHostEvent("excludedCellsAdded", cellIds);
+export function sendExcludedCellsToggled(cellIds: string[]) {
+  emitHostEvent("excludedCellsToggled", cellIds);
+}
+
+export function sendFrameLoaded(payload: FrameLoadedPayload) {
+  emitHostEvent("frameLoaded", payload);
+}
+
+export function sendFrameLoadFailed(message: string) {
+  emitHostEvent("frameLoadFailed", { message });
 }

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import math
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +17,7 @@ from typing import Any
 import numpy as np
 import tifffile
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, QUrl, Slot
+from PySide6.QtGui import QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -34,6 +38,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from websockets.asyncio.server import serve
 
 TIFF_PATTERN = re.compile(
     r"^img_channel(?P<channel>\d+)_position(?P<position>\d+)_time(?P<time>\d+)_z(?P<z>\d+)\.tiff?$",
@@ -41,6 +46,9 @@ TIFF_PATTERN = re.compile(
 )
 SAMPLE_SIZE = 2048
 MAX_GRID_RECTS = 8000
+BACKEND_HOST = "127.0.0.1"
+HERE = Path(__file__).resolve().parent
+ICON_PATH = HERE / "icons" / "icon.png"
 
 
 @dataclass(frozen=True)
@@ -166,6 +174,12 @@ def scan_workspace(root: str) -> dict[str, Any]:
         "times": sorted(times),
         "zSlices": sorted(z_slices),
     }
+
+
+def app_icon() -> QIcon:
+    if ICON_PATH.exists():
+        return QIcon(str(ICON_PATH))
+    return QIcon()
 
 
 def create_selection(scan: dict[str, list[int]]) -> dict[str, int] | None:
@@ -392,6 +406,160 @@ class LocalBackend:
         return save_bbox(root, pos, csv)
 
 
+def ok_response(message_id: str, message_type: str, payload: Any) -> str:
+    return json.dumps({"id": message_id, "type": message_type, "payload": payload})
+
+
+def error_response(message_id: str, message: str) -> str:
+    return ok_response(message_id, "error", {"message": message})
+
+
+class WebSocketBackendServer:
+    def __init__(self, backend: LocalBackend, host: str = BACKEND_HOST, port: int = 0) -> None:
+        self._backend = backend
+        self._host = host
+        self._port = port
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop_event: asyncio.Event | None = None
+        self._ready = threading.Event()
+        self._started = threading.Event()
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="view-py-ws")
+        self._bound_port: int | None = None
+        self._startup_error: Exception | None = None
+
+    @property
+    def url(self) -> str:
+        if self._bound_port is None:
+            raise RuntimeError("WebSocket backend server has not started")
+        return f"ws://{self._host}:{self._bound_port}"
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, name="view-py-backend", daemon=True)
+        self._thread.start()
+        self._ready.wait(timeout=10.0)
+        if self._startup_error is not None:
+            raise RuntimeError("Failed to start websocket backend") from self._startup_error
+        if not self._started.is_set():
+            raise RuntimeError("Timed out while starting websocket backend")
+
+    def stop(self) -> None:
+        loop = self._loop
+        stop_event = self._stop_event
+        if loop is not None and stop_event is not None:
+            loop.call_soon_threadsafe(stop_event.set)
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
+            self._thread = None
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def _run(self) -> None:
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+        asyncio.set_event_loop(loop)
+        self._stop_event = asyncio.Event()
+        try:
+            loop.run_until_complete(self._serve())
+        except Exception as error:  # noqa: BLE001
+            self._startup_error = error
+            self._ready.set()
+        finally:
+            pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
+            self._loop = None
+            self._stop_event = None
+
+    async def _serve(self) -> None:
+        assert self._stop_event is not None
+        async with serve(self._handle_connection, self._host, self._port) as server:
+            socket = server.sockets[0] if server.sockets else None
+            if socket is None:
+                raise RuntimeError("WebSocket backend failed to bind a socket")
+            self._bound_port = int(socket.getsockname()[1])
+            self._started.set()
+            self._ready.set()
+            await self._stop_event.wait()
+
+    async def _handle_connection(self, websocket: Any) -> None:
+        async for message in websocket:
+            if not isinstance(message, str):
+                continue
+            response = await self._handle_request(message)
+            if response is None:
+                continue
+            await websocket.send(response)
+
+    async def _handle_request(self, text: str) -> str | None:
+        try:
+            envelope = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+        if not isinstance(envelope, dict):
+            return None
+
+        message_id = str(envelope.get("id", ""))
+        message_type = envelope.get("type")
+        payload = envelope.get("payload")
+        if not message_id or not isinstance(message_type, str):
+            return None
+
+        loop = asyncio.get_running_loop()
+        try:
+            if message_type == "scan_workspace":
+                if not isinstance(payload, dict) or not isinstance(payload.get("root"), str):
+                    raise ValueError("Invalid scan_workspace payload")
+                result = await loop.run_in_executor(self._executor, self._backend.scan_workspace, payload["root"])
+                return ok_response(message_id, "scan_workspace_result", result)
+
+            if message_type == "load_frame":
+                if not isinstance(payload, dict):
+                    raise ValueError("Invalid load_frame payload")
+                root = payload.get("root")
+                request = payload.get("request")
+                contrast = payload.get("contrast")
+                if not isinstance(root, str) or not isinstance(request, dict):
+                    raise ValueError("Invalid load_frame payload")
+                normalized_request = {
+                    "pos": int(request["pos"]),
+                    "channel": int(request["channel"]),
+                    "time": int(request["time"]),
+                    "z": int(request["z"]),
+                }
+                normalized_contrast = None
+                if isinstance(contrast, dict):
+                    normalized_contrast = {"min": int(contrast["min"]), "max": int(contrast["max"])}
+                result = await loop.run_in_executor(
+                    self._executor,
+                    self._backend.load_frame,
+                    root,
+                    normalized_request,
+                    normalized_contrast,
+                )
+                return ok_response(message_id, "load_frame_result", result)
+
+            if message_type == "save_bbox":
+                if not isinstance(payload, dict):
+                    raise ValueError("Invalid save_bbox payload")
+                root = payload.get("root")
+                pos = payload.get("pos")
+                csv = payload.get("csv")
+                if not isinstance(root, str) or not isinstance(pos, int) or not isinstance(csv, str):
+                    raise ValueError("Invalid save_bbox payload")
+                result = await loop.run_in_executor(self._executor, self._backend.save_bbox, root, pos, csv)
+                return ok_response(message_id, "save_bbox_result", result)
+
+            return error_response(message_id, "Unsupported request type")
+        except Exception as error:  # noqa: BLE001
+            return error_response(message_id, str(error))
+
+
 class CanvasBridge(QObject):
     def __init__(self, window: "ViewerMainWindow") -> None:
         super().__init__()
@@ -403,9 +571,10 @@ class CanvasBridge(QObject):
 
 
 class ViewerMainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, backend_url: str) -> None:
         super().__init__()
         self._backend = LocalBackend()
+        self._backend_url = backend_url
         self._root = ""
         self._scan: dict[str, list[int]] | None = None
         self._selection: dict[str, int] | None = None
@@ -423,6 +592,7 @@ class ViewerMainWindow(QMainWindow):
         self._canvas_ready = False
 
         self.setWindowTitle("View")
+        self.setWindowIcon(app_icon())
         self.resize(1480, 980)
         self._build_ui()
         self._sync_ui()
@@ -639,8 +809,6 @@ class ViewerMainWindow(QMainWindow):
     def _empty_text(self) -> str:
         if not self._root:
             return "Open a workspace to load frames"
-        if self._loading and self._frame_payload is None:
-            return "Loading frame..."
         if self._scan is not None and not self._selection:
             return "No frames found in workspace"
         return "No frame loaded"
@@ -658,11 +826,18 @@ class ViewerMainWindow(QMainWindow):
         if not self._canvas_ready:
             return
         payload = {
-            "frame": self._frame_payload,
+            "backendUrl": self._backend_url,
+            "root": self._root or None,
+            "request": dict(self._selection) if self._selection else None,
+            "contrast": {
+                "mode": self._contrast_mode,
+                "value": {"min": int(self._contrast_min), "max": int(self._contrast_max)}
+                if self._contrast_mode == "manual"
+                else None,
+            },
             "grid": self._grid,
             "excludedCellIds": sorted(self._active_excluded_cell_ids()),
             "selectionMode": self._selection_mode,
-            "loading": self._loading,
             "emptyText": self._empty_text(),
             "messages": self._canvas_messages(),
         }
@@ -848,40 +1023,9 @@ class ViewerMainWindow(QMainWindow):
             self._publish_canvas_state()
             return
 
-        requested_contrast = None
-        if self._contrast_mode == "manual":
-            requested_contrast = {"min": int(self._contrast_min), "max": int(self._contrast_max)}
-
-        self._loading = True
+        self._frame_payload = None
         self._clear_save_message()
-        self._sync_ui()
-        self._publish_canvas_state()
-        try:
-            payload = self._with_wait_cursor(self._backend.load_frame, self._root, self._selection, requested_contrast)
-            self._frame_payload = payload
-            self._contrast_domain = dict(payload.get("contrastDomain") or {"min": 0, "max": 255})
-            applied = dict(payload.get("appliedContrast") or payload.get("suggestedContrast") or self._contrast_domain)
-            self._contrast_min = int(
-                clamp(
-                    applied["min"],
-                    self._contrast_domain["min"],
-                    max(self._contrast_domain["min"], self._contrast_domain["max"] - 1),
-                )
-            )
-            self._contrast_max = int(
-                clamp(
-                    applied["max"],
-                    min(self._contrast_domain["min"] + 1, self._contrast_domain["max"]),
-                    self._contrast_domain["max"],
-                )
-            )
-            self._set_error(None)
-        except Exception as error:  # noqa: BLE001
-            self._frame_payload = None
-            self._set_error(str(error))
-        finally:
-            self._loading = False
-
+        self._set_error(None)
         self._sync_ui()
         self._publish_canvas_state()
 
@@ -1040,8 +1184,14 @@ class ViewerMainWindow(QMainWindow):
         if message_type == "gridChanged":
             self.handle_canvas_grid_changed(payload)
             return
-        if message_type == "excludedCellsAdded":
-            self.handle_canvas_excluded_cells_added(payload)
+        if message_type == "excludedCellsToggled":
+            self.handle_canvas_excluded_cells_toggled(payload)
+            return
+        if message_type == "frameLoaded":
+            self.handle_canvas_frame_loaded(payload)
+            return
+        if message_type == "frameLoadFailed":
+            self.handle_canvas_frame_load_failed(payload)
 
     def handle_canvas_grid_changed(self, payload: Any) -> None:
         self._grid = normalize_grid_state(payload if isinstance(payload, dict) else None)
@@ -1050,7 +1200,7 @@ class ViewerMainWindow(QMainWindow):
         self._clear_save_message()
         self._sync_ui()
 
-    def handle_canvas_excluded_cells_added(self, payload: Any) -> None:
+    def handle_canvas_excluded_cells_toggled(self, payload: Any) -> None:
         if not self._selection:
             return
         if not isinstance(payload, list):
@@ -1059,16 +1209,66 @@ class ViewerMainWindow(QMainWindow):
         position = int(self._selection["pos"])
         active = set(self._excluded_cell_ids_by_position.get(position, set()))
         changed = False
-        for cell_id in payload:
-            if isinstance(cell_id, str) and cell_id not in active:
+        for cell_id in {value for value in payload if isinstance(value, str)}:
+            if cell_id in active:
+                active.remove(cell_id)
+            else:
                 active.add(cell_id)
-                changed = True
+            changed = True
 
         if not changed:
             return
-        self._excluded_cell_ids_by_position[position] = active
+        if active:
+            self._excluded_cell_ids_by_position[position] = active
+        else:
+            self._excluded_cell_ids_by_position.pop(position, None)
         self._clear_save_message()
         self._refresh_counts()
+
+    def handle_canvas_frame_loaded(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        try:
+            width = int(payload["width"])
+            height = int(payload["height"])
+        except (KeyError, TypeError, ValueError):
+            return
+
+        self._frame_payload = {"width": width, "height": height}
+        contrast_domain = payload.get("contrastDomain")
+        if isinstance(contrast_domain, dict):
+            self._contrast_domain = {
+                "min": int(contrast_domain.get("min", 0)),
+                "max": int(contrast_domain.get("max", max(1, self._contrast_domain["max"]))),
+            }
+        applied = payload.get("appliedContrast") or payload.get("suggestedContrast") or self._contrast_domain
+        if isinstance(applied, dict):
+            self._contrast_min = int(
+                clamp(
+                    int(applied.get("min", self._contrast_min)),
+                    self._contrast_domain["min"],
+                    max(self._contrast_domain["min"], self._contrast_domain["max"] - 1),
+                )
+            )
+            self._contrast_max = int(
+                clamp(
+                    int(applied.get("max", self._contrast_max)),
+                    min(self._contrast_domain["min"] + 1, self._contrast_domain["max"]),
+                    self._contrast_domain["max"],
+                )
+            )
+        self._set_error(None)
+        self._sync_ui()
+        self._publish_canvas_state()
+
+    def handle_canvas_frame_load_failed(self, payload: Any) -> None:
+        if isinstance(payload, dict) and isinstance(payload.get("message"), str):
+            self._set_error(payload["message"])
+        else:
+            self._set_error("Failed to load frame")
+        self._frame_payload = None
+        self._sync_ui()
+        self._publish_canvas_state()
 
 
 def resolve_frontend_url() -> tuple[QUrl, Callable[[], None] | None]:
@@ -1085,12 +1285,16 @@ def resolve_frontend_url() -> tuple[QUrl, Callable[[], None] | None]:
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     frontend_url, stop_frontend_server = resolve_frontend_url()
+    backend_server = WebSocketBackendServer(LocalBackend())
+    backend_server.start()
     try:
-        window = ViewerMainWindow()
+        window = ViewerMainWindow(backend_server.url)
         window.view.setUrl(frontend_url)
         window.show()
         return app.exec()
     finally:
+        backend_server.stop()
         if stop_frontend_server is not None:
             stop_frontend_server()
