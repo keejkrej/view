@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@view/view": "workspace:*",
+    "@view/canvas": "workspace:*",
+    "@view/core-ts": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

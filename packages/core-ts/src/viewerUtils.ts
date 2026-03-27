@@ -1,4 +1,4 @@
-import { clamp } from "@view/grid";
+import { clamp } from "./utils";
 
 import type {
   ContrastWindow,
@@ -8,7 +8,7 @@ import type {
   ViewerSelection,
   ViewerSource,
   WorkspaceScan,
-} from "./types";
+} from "./viewerTypes";
 
 const SAMPLE_SIZE = 2048;
 
@@ -55,7 +55,7 @@ export function percentile(values: PixelArray, q: number): number {
   return sorted[index] ?? 0;
 }
 
-export function autoContrast(values: PixelArray) {
+export function autoContrast(values: PixelArray): ContrastWindow {
   if (values.length === 0) {
     return { min: 0, max: 1 };
   }
@@ -106,5 +106,3 @@ export function makeSourceKey(source: ViewerSource): string {
 export function makeFrameKey(source: ViewerSource, selection: ViewerSelection): string {
   return `${makeSourceKey(source)}:${selection.pos}:${selection.channel}:${selection.time}:${selection.z}`;
 }
-
-export type { ContrastWindow };

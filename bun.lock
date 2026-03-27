@@ -9,7 +9,8 @@
       "name": "@view/view-py-web",
       "version": "0.1.0",
       "dependencies": {
-        "@view/view": "workspace:*",
+        "@view/canvas": "workspace:*",
+        "@view/core-ts": "workspace:*",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
       },
@@ -29,9 +30,9 @@
       "dependencies": {
         "@base-ui/react": "^1.3.0",
         "@tauri-apps/api": "^2.8.0",
-        "@view/grid": "workspace:*",
+        "@view/canvas": "workspace:*",
+        "@view/core-ts": "workspace:*",
         "@view/ui": "workspace:*",
-        "@view/view": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "effect": "^3.21.0",
         "lucide-react": "^1.6.0",
@@ -51,6 +52,42 @@
         "vite": "^6.3.0",
       },
     },
+    "packages/canvas": {
+      "name": "@view/canvas",
+      "version": "0.1.0",
+      "dependencies": {
+        "@view/core-ts": "workspace:*",
+        "react": "^18.3.1",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "@types/node": "^24.0.0",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "@vitejs/plugin-react": "^4.7.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "typescript": "^5.6.3",
+        "vite": "^6.3.0",
+      },
+      "peerDependencies": {
+        "react": "^18.3.1 || ^19.0.0",
+        "react-dom": "^18.3.1 || ^19.0.0",
+      },
+    },
+    "packages/core-ts": {
+      "name": "@view/core-ts",
+      "version": "0.1.0",
+      "dependencies": {
+        "effect": "^3.21.0",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "@types/node": "^24.0.0",
+        "typescript": "^5.6.3",
+        "vite": "^6.3.0",
+      },
+    },
     "packages/ui": {
       "name": "@view/ui",
       "version": "0.1.0",
@@ -64,40 +101,6 @@
       "devDependencies": {
         "@types/react": "^18.3.12",
         "@types/react-dom": "^18.3.1",
-      },
-      "peerDependencies": {
-        "react": "^18.3.1 || ^19.0.0",
-        "react-dom": "^18.3.1 || ^19.0.0",
-      },
-    },
-    "packages/view-grid-ts": {
-      "name": "@view/grid",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@types/bun": "^1.3.0",
-        "@types/node": "^24.0.0",
-        "typescript": "^5.6.3",
-        "vite": "^6.3.0",
-      },
-    },
-    "packages/view-react": {
-      "name": "@view/view",
-      "version": "0.1.0",
-      "dependencies": {
-        "@view/grid": "workspace:*",
-        "effect": "^3.21.0",
-        "react": "^18.3.1",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.3.0",
-        "@types/node": "^24.0.0",
-        "@types/react": "^18.3.12",
-        "@types/react-dom": "^18.3.1",
-        "@vitejs/plugin-react": "^4.7.0",
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1",
-        "typescript": "^5.6.3",
-        "vite": "^6.3.0",
       },
       "peerDependencies": {
         "react": "^18.3.1 || ^19.0.0",
@@ -350,11 +353,11 @@
 
     "@types/react-dom": ["@types/react-dom@18.3.7", "", { "peerDependencies": { "@types/react": "^18.0.0" } }, "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ=="],
 
-    "@view/grid": ["@view/grid@workspace:packages/view-grid-ts"],
+    "@view/canvas": ["@view/canvas@workspace:packages/canvas"],
+
+    "@view/core-ts": ["@view/core-ts@workspace:packages/core-ts"],
 
     "@view/ui": ["@view/ui@workspace:packages/ui"],
-
-    "@view/view": ["@view/view@workspace:packages/view-react"],
 
     "@view/view-py-web": ["@view/view-py-web@workspace:apps/view-py/web"],
 

@@ -39,13 +39,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from websockets.asyncio.server import serve
-from view_grid import (
+from core_py import (
+    ExcludedCellIdsByPosition,
     GridCellRect,
     build_bbox_csv,
+    clear_excluded_cell_ids,
+    collect_edge_cell_ids,
     count_visible_cells,
     create_default_grid,
+    merge_excluded_cell_ids,
     minimum_grid_spacing,
     normalize_grid_state,
+    set_excluded_cell_ids_for_position,
+    toggle_excluded_cell_ids,
 )
 
 TIFF_PATTERN = re.compile(
@@ -126,16 +132,59 @@ def nd2_dimension_values(sizes: dict[str, int], key: str) -> list[int]:
     return list(range(nd2_dimension_size(sizes, key)))
 
 
+def nd2_loop_index(handle: Any, p: int, t: int, z: int) -> int:
+    loop_indices = tuple(getattr(handle, "loop_indices", ()) or ())
+    if not loop_indices:
+        return 0
+    for seq_index, indices in enumerate(loop_indices):
+        if (
+            int(indices.get("P", 0)) == p
+            and int(indices.get("T", 0)) == t
+            and int(indices.get("Z", 0)) == z
+        ):
+            return seq_index
+    raise ValueError("Requested ND2 frame not found")
+
+
+def nd2_frame_axes(sizes: dict[str, int]) -> list[str]:
+    return [dimension for dimension in sizes.keys() if dimension in {"C", "Y", "X", "S"}]
+
+
+def nd2_frame_to_grayscale(frame: np.ndarray, sizes: dict[str, int], channel: int) -> np.ndarray:
+    grayscale = np.asarray(frame)
+    active_axes = [axis for axis in nd2_frame_axes(sizes) if nd2_dimension_size(sizes, axis) > 1]
+
+    if grayscale.ndim != len(active_axes):
+        if grayscale.ndim == 2:
+            active_axes = ["Y", "X"]
+        else:
+            raise ValueError("Unsupported ND2 frame layout")
+
+    if "C" in active_axes:
+        channel_axis = active_axes.index("C")
+        if channel < 0 or channel >= grayscale.shape[channel_axis]:
+            raise ValueError(f"Channel index {channel} is out of range")
+        grayscale = np.take(grayscale, channel, axis=channel_axis)
+        active_axes.pop(channel_axis)
+    elif channel != 0:
+        raise ValueError(f"Channel index {channel} is out of range")
+
+    if "S" in active_axes:
+        rgb_axis = active_axes.index("S")
+        grayscale = np.rint(np.asarray(grayscale, dtype=np.float32).mean(axis=rgb_axis))
+        active_axes.pop(rgb_axis)
+
+    if active_axes != ["Y", "X"] or grayscale.ndim != 2:
+        raise ValueError("Unsupported ND2 frame layout")
+
+    return np.array(grayscale, copy=True)
+
+
 def read_nd2_frame_2d(handle: Any, p: int, t: int, c: int, z: int) -> np.ndarray:
-    sizes = handle.sizes
-    dim_order = [dimension for dimension in sizes.keys() if dimension not in ("Y", "X")]
-    coord_shape = tuple(int(sizes[dimension]) for dimension in dim_order)
-    idx = tuple({"P": p, "T": t, "C": c, "Z": z}.get(dimension, 0) for dimension in dim_order)
-    seq_index = int(np.ravel_multi_index(idx, coord_shape))
+    sizes = {str(key): int(value) for key, value in handle.sizes.items()}
+    seq_index = nd2_loop_index(handle, p, t, z)
     frame = handle.read_frame(seq_index)
-    if getattr(frame, "ndim", 0) == 3:
-        return np.asarray(frame[0])
-    return np.asarray(frame)
+    return nd2_frame_to_grayscale(frame, sizes, c)
 
 
 def scan_workspace(root: str) -> dict[str, Any]:
@@ -272,20 +321,15 @@ def load_nd2_frame(path: str, request: dict[str, int]) -> tuple[int, int, np.nda
 
     with nd2.ND2File(path) as handle:
         sizes = {str(key): int(value) for key, value in handle.sizes.items()}
-        width = nd2_dimension_size(sizes, "X")
-        height = nd2_dimension_size(sizes, "Y")
-        frame = read_nd2_frame_2d(
+        grayscale = read_nd2_frame_2d(
             handle,
             validate_nd2_index("Position", int(request["pos"]), nd2_dimension_size(sizes, "P")),
             validate_nd2_index("Time", int(request["time"]), nd2_dimension_size(sizes, "T")),
             validate_nd2_index("Channel", int(request["channel"]), nd2_dimension_size(sizes, "C")),
             validate_nd2_index("Z", int(request["z"]), nd2_dimension_size(sizes, "Z")),
         )
-
-    grayscale = np.asarray(frame)
-    if grayscale.ndim != 2:
-        raise ValueError("Unsupported ND2 frame layout")
     grayscale = np.clip(grayscale, 0, np.iinfo(np.uint16).max).astype(np.uint16, copy=False)
+    height, width = grayscale.shape
     return width, height, grayscale
 
 
@@ -569,7 +613,7 @@ class ViewerMainWindow(QMainWindow):
         self._contrast_max = 65535
         self._auto_contrast_request_token = 0
         self._selection_mode = False
-        self._excluded_cell_ids_by_position: dict[int, set[str]] = {}
+        self._excluded_cell_ids_by_position: ExcludedCellIdsByPosition = {}
         self._error_message: str | None = None
         self._save_message: tuple[str, str] | None = None
         self._loading = False
@@ -739,10 +783,13 @@ class ViewerMainWindow(QMainWindow):
         select_layout.setContentsMargins(12, 12, 12, 12)
         select_layout.setSpacing(8)
         select_actions = QHBoxLayout()
+        self.disable_edge_button = QPushButton("Disable Edge")
+        self.disable_edge_button.clicked.connect(self.disable_edge_bbox)
         self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_current_bbox)
         self.selection_mode_checkbox = QCheckBox("Selection Mode")
         self.selection_mode_checkbox.toggled.connect(self._on_selection_mode_toggled)
+        select_actions.addWidget(self.disable_edge_button)
         select_actions.addWidget(self.save_button)
         select_actions.addStretch(1)
         select_actions.addWidget(self.selection_mode_checkbox)
@@ -790,7 +837,7 @@ class ViewerMainWindow(QMainWindow):
     def _active_excluded_cell_ids(self) -> set[str]:
         if not self._selection:
             return set()
-        return set(self._excluded_cell_ids_by_position.get(self._selection["pos"], set()))
+        return set(self._excluded_cell_ids_by_position.get(self._selection["pos"], []))
 
     def _frame_size(self) -> tuple[int, int] | None:
         if not self._frame_payload:
@@ -945,6 +992,7 @@ class ViewerMainWindow(QMainWindow):
         self.grid_opacity_spin.setEnabled(grid_controls_enabled)
         selection_enabled = has_frame and bool(self._grid["enabled"])
         self.selection_mode_checkbox.setEnabled(selection_enabled)
+        self.disable_edge_button.setEnabled(has_frame and has_selection)
         self.save_button.setEnabled(has_workspace and has_frame and has_selection)
         if not selection_enabled and self._selection_mode:
             self._selection_mode = False
@@ -977,7 +1025,7 @@ class ViewerMainWindow(QMainWindow):
         self._contrast_max = 65535
         self._auto_contrast_request_token = 0
         self._selection_mode = False
-        self._excluded_cell_ids_by_position = {}
+        self._excluded_cell_ids_by_position = clear_excluded_cell_ids()
         self._set_error(None)
         self._clear_save_message()
 
@@ -1189,6 +1237,7 @@ class ViewerMainWindow(QMainWindow):
         self.load_current_frame()
 
     def _on_grid_reset(self, *_args: Any) -> None:
+        self._excluded_cell_ids_by_position = clear_excluded_cell_ids()
         self._update_grid({**create_default_grid(), "enabled": self._grid["enabled"]})
 
     def _on_grid_enabled_toggled(self, checked: bool) -> None:
@@ -1265,21 +1314,18 @@ class ViewerMainWindow(QMainWindow):
             return
 
         position = int(self._selection["pos"])
-        active = set(self._excluded_cell_ids_by_position.get(position, set()))
-        changed = False
-        for cell_id in {value for value in payload if isinstance(value, str)}:
-            if cell_id in active:
-                active.remove(cell_id)
-            else:
-                active.add(cell_id)
-            changed = True
-
-        if not changed:
+        toggled_cell_ids = [value for value in payload if isinstance(value, str)]
+        if not toggled_cell_ids:
             return
-        if active:
-            self._excluded_cell_ids_by_position[position] = active
-        else:
-            self._excluded_cell_ids_by_position.pop(position, None)
+        next_excluded = toggle_excluded_cell_ids(
+            self._excluded_cell_ids_by_position.get(position, []),
+            toggled_cell_ids,
+        )
+        self._excluded_cell_ids_by_position = set_excluded_cell_ids_for_position(
+            self._excluded_cell_ids_by_position,
+            position,
+            next_excluded,
+        )
         self._clear_save_message()
         self._refresh_counts()
 
@@ -1318,6 +1364,32 @@ class ViewerMainWindow(QMainWindow):
         if self._contrast_mode == "auto":
             self._contrast_mode = "manual"
         self._set_error(None)
+        self._sync_ui()
+        self._publish_canvas_state()
+
+    def disable_edge_bbox(self, *_args: Any) -> None:
+        frame_size = self._frame_size()
+        if not self._selection or not frame_size:
+            return
+
+        edge_cell_ids = collect_edge_cell_ids(frame_size[0], frame_size[1], self._grid)
+        if not edge_cell_ids:
+            return
+
+        position = int(self._selection["pos"])
+        next_excluded = merge_excluded_cell_ids(
+            self._excluded_cell_ids_by_position.get(position, []),
+            edge_cell_ids,
+        )
+        if next_excluded == self._excluded_cell_ids_by_position.get(position, []):
+            return
+
+        self._excluded_cell_ids_by_position = set_excluded_cell_ids_for_position(
+            self._excluded_cell_ids_by_position,
+            position,
+            next_excluded,
+        )
+        self._clear_save_message()
         self._sync_ui()
         self._publish_canvas_state()
 

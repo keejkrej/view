@@ -9,15 +9,15 @@
     "apps/*/web"
   ],
   "scripts": {
-    "build": "bun run build:grid && bun run build:view && bun run build:view-rs:web",
-    "build:grid": "bun run --cwd packages/view-grid-ts build",
-    "build:view": "bun run --cwd packages/view-react build",
+    "build": "bun run build:core-ts && bun run build:canvas && bun run build:view-rs:web",
+    "build:core-ts": "bun run --cwd packages/core-ts build",
+    "build:canvas": "bun run --cwd packages/canvas build",
     "build:view-rs:web": "bun run --cwd apps/view-rs build:renderer",
     "build:view-py:web": "bun run --cwd apps/view-py/web build",
     "check:tauri": "bun run --cwd apps/view-rs check:tauri",
     "dev": "bun run --cwd apps/view-rs dev",
     "dev:view-py:web": "bun run --cwd apps/view-py/web dev",
-    "test": "bun run --cwd packages/view-grid-ts test && bun run --cwd packages/view-react test",
-    "typecheck": "bun run --cwd packages/view-grid-ts typecheck && bun run --cwd packages/view-react typecheck && bun run --cwd apps/view-rs typecheck && bun run --cwd apps/view-py/web typecheck"
+    "test": "bun run --cwd packages/core-ts test && bun run --cwd packages/canvas test",
+    "typecheck": "bun run --cwd packages/core-ts typecheck && bun run --cwd packages/canvas typecheck && bun run --cwd apps/view-rs typecheck && bun run --cwd apps/view-py/web typecheck"
   }
 }

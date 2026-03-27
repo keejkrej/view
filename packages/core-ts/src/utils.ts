@@ -283,6 +283,19 @@ export function countVisibleCells(
   };
 }
 
+export function collectEdgeCellIds(frame: GridFrameBounds, grid: GridState): string[] {
+  return enumerateVisibleGridCells(frame, grid)
+    .filter(
+      (cell) =>
+        cell.x <= 0 ||
+        cell.y <= 0 ||
+        cell.x + cell.width >= frame.width ||
+        cell.y + cell.height >= frame.height,
+    )
+    .map((cell) => cell.id)
+    .sort();
+}
+
 export function buildBboxCsv(
   frame: GridFrameBounds,
   grid: GridState,

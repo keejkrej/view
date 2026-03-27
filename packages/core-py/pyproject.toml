@@ -3,10 +3,10 @@ requires = ["hatchling>=1.27", "pathspec<1"]
 build-backend = "hatchling.build"
 
 [project]
-name = "view-grid-py"
+name = "core-py"
 version = "0.1.0"
-description = "Reusable grid and bbox helpers shared with the view app"
+description = "Reusable Python viewer core helpers shared with the view apps"
 requires-python = ">=3.11"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/view_grid"]
+packages = ["src/core_py"]

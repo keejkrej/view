@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { createWebSocketBackend } from "@view/view";
+import { createWebSocketBackend } from "@view/core-ts";
 
 import ViewApp from "./ViewApp";
 

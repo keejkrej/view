@@ -11,7 +11,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@view/view": resolve(__dirname, "../../../packages/view-react/src/index.ts"),
+      "@view/canvas": resolve(__dirname, "../../../packages/canvas/src/index.ts"),
+      "@view/core-ts": resolve(__dirname, "../../../packages/core-ts/src/index.ts"),
     },
   },
   server: {

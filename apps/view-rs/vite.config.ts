@@ -11,10 +11,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@view/grid": resolve(__dirname, "../../packages/view-grid-ts/src/index.ts"),
+      "@view/canvas": resolve(__dirname, "../../packages/canvas/src/index.ts"),
+      "@view/core-ts": resolve(__dirname, "../../packages/core-ts/src/index.ts"),
       "@view/ui/theme.css": resolve(__dirname, "../../packages/ui/src/theme.css"),
       "@view/ui": resolve(__dirname, "../../packages/ui/src/index.ts"),
-      "@view/view": resolve(__dirname, "../../packages/view-react/src/index.ts"),
     },
   },
   server: {

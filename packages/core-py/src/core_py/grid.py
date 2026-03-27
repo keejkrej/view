@@ -259,10 +259,28 @@ def count_visible_cells(
     return len(cells) - excluded_count, excluded_count
 
 
+def collect_edge_cell_ids(
+    frame_width: int,
+    frame_height: int,
+    grid: GridState,
+) -> list[str]:
+    return sorted(
+        cell.id
+        for cell in enumerate_visible_grid_cells(frame_width, frame_height, grid)
+        if (
+            cell.x <= 0
+            or cell.y <= 0
+            or cell.x + cell.width >= frame_width
+            or cell.y + cell.height >= frame_height
+        )
+    )
+
+
 __all__ = [
     "GridCellRect",
     "GridState",
     "build_bbox_csv",
+    "collect_edge_cell_ids",
     "count_visible_cells",
     "create_default_grid",
     "enumerate_visible_grid_cells",

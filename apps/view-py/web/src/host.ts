@@ -4,7 +4,7 @@ import type {
   GridState,
   ViewerSource,
   ViewerCanvasStatusMessage,
-} from "@view/view";
+} from "@view/core-ts";
 
 declare global {
   interface Window {

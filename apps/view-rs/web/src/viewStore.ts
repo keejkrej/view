@@ -2,18 +2,22 @@ import { Effect } from "effect";
 import { createStore } from "zustand/vanilla";
 
 import type {
+  ExcludedCellIdsByPosition,
   FrameResult,
   GridState,
   ViewerSelection,
   ViewerSource,
   WorkspaceScan,
-} from "@view/view";
+} from "@view/core-ts";
 import {
+  clearExcludedCellIds,
   createDefaultGrid,
   makeSourceKey,
+  mergeExcludedCellIds,
   normalizeGridState,
-  toggleCellIds,
-} from "@view/view";
+  setExcludedCellIdsForPosition,
+  toggleExcludedCellIds,
+} from "@view/core-ts";
 
 const LAST_IMAGE_SOURCE_KEY = "view.lastImageSource";
 const LAST_WORKSPACE_KEY = "view.lastWorkspace";
@@ -21,8 +25,6 @@ const LAST_SOURCE_KEY = "view.lastSource";
 const LAST_ROOT_KEY = "view.lastRoot";
 const LAST_GRID_KEY = "view.grid";
 const EXCLUDED_BBOX_KEY_PREFIX = "view.excludedBboxes";
-
-export type ExcludedCellIdsByPosition = Record<number, string[]>;
 
 export type SaveState =
   | { type: "idle"; message: null }
@@ -343,8 +345,15 @@ export function resetGrid() {
       ...createDefaultGrid(),
       enabled: state.grid.enabled,
     };
+    const excludedCellIdsByPosition = {};
     runSync(persistGridEffect(resolveStorage(), grid));
-    return { ...state, grid };
+    runSync(persistExcludedCellIdsEffect(resolveStorage(), state.source, excludedCellIdsByPosition));
+    return {
+      ...state,
+      grid,
+      excludedCellIdsByPosition,
+      saveState: IDLE_SAVE_STATE,
+    };
   });
 }
 
@@ -399,7 +408,7 @@ export function reloadAutoContrast() {
 
 export function toggleExcludedCells(position: number, cellIds: Iterable<string>) {
   viewStore.setState((state) => {
-    const nextCellIds = toggleCellIds(state.excludedCellIdsByPosition[position] ?? [], cellIds);
+    const nextCellIds = toggleExcludedCellIds(state.excludedCellIdsByPosition[position] ?? [], cellIds);
     const currentCellIds = state.excludedCellIdsByPosition[position] ?? [];
     if (
       nextCellIds.length === currentCellIds.length &&
@@ -408,12 +417,40 @@ export function toggleExcludedCells(position: number, cellIds: Iterable<string>)
       return state;
     }
 
-    const excludedCellIdsByPosition = { ...state.excludedCellIdsByPosition };
-    if (nextCellIds.length === 0) {
-      delete excludedCellIdsByPosition[position];
-    } else {
-      excludedCellIdsByPosition[position] = nextCellIds;
+    const excludedCellIdsByPosition = setExcludedCellIdsForPosition(
+      state.excludedCellIdsByPosition,
+      position,
+      nextCellIds,
+    );
+
+    runSync(
+      persistExcludedCellIdsEffect(resolveStorage(), state.source, excludedCellIdsByPosition),
+    );
+
+    return {
+      ...state,
+      excludedCellIdsByPosition,
+      saveState: IDLE_SAVE_STATE,
+    };
+  });
+}
+
+export function excludeCells(position: number, cellIds: Iterable<string>) {
+  viewStore.setState((state) => {
+    const nextCellIds = mergeExcludedCellIds(state.excludedCellIdsByPosition[position] ?? [], cellIds);
+    const currentCellIds = state.excludedCellIdsByPosition[position] ?? [];
+    if (
+      nextCellIds.length === currentCellIds.length &&
+      nextCellIds.every((cellId, index) => cellId === currentCellIds[index])
+    ) {
+      return state;
     }
+
+    const excludedCellIdsByPosition = setExcludedCellIdsForPosition(
+      state.excludedCellIdsByPosition,
+      position,
+      nextCellIds,
+    );
 
     runSync(
       persistExcludedCellIdsEffect(resolveStorage(), state.source, excludedCellIdsByPosition),

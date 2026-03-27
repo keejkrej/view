@@ -4,7 +4,8 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@view/view": ["../../../packages/view-react/src/index.ts"]
+      "@view/canvas": ["../../../packages/canvas/src/index.ts"],
+      "@view/core-ts": ["../../../packages/core-ts/src/index.ts"]
     }
   },
   "include": ["src"]

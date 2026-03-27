@@ -7,11 +7,11 @@ name = "view-root"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+  "core-py",
   "nd2>=0.10",
   "numpy>=2.0.0",
   "PySide6>=6.7.0",
   "tifffile>=2025.1.10",
-  "view-grid-py",
   "websockets>=15.0.0",
 ]
 
@@ -22,4 +22,4 @@ view-py = "view_py_runner:main"
 include = ["view_py_runner.py"]
 
 [tool.uv.sources]
-view-grid-py = { path = "packages/view-grid-py", editable = true }
+core-py = { path = "packages/core-py", editable = true }

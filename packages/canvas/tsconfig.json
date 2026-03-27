@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@view/grid": ["../view-grid-ts/src/index.ts"]
+      "@view/core-ts": ["../core-ts/src/index.ts"]
     }
   },
   "include": ["src"]

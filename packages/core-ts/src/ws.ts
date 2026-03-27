@@ -8,7 +8,7 @@ import type {
   ViewerBackend,
   ViewerSource,
   WorkspaceScan,
-} from "./types";
+} from "./viewerTypes";
 
 interface RequestEnvelope {
   id: string;
@@ -115,7 +115,7 @@ class WebSocketBackend implements ViewerBackend {
 
   private requestEffect<T>(type: string, payload: unknown) {
     return Effect.tryPromise({
-      try: async (signal) => {
+      try: async (signal: AbortSignal) => {
         const socket = await this.ensureSocket();
         const id = `${Date.now()}-${this.nextId++}`;
         const body: RequestEnvelope = { id, type, payload };
@@ -151,7 +151,7 @@ class WebSocketBackend implements ViewerBackend {
           }
         });
       },
-      catch: (error) => toError(error, `Request ${type} failed`),
+      catch: (error: unknown) => toError(error, `Request ${type} failed`),
     }).pipe(Effect.withSpan(`viewer.ws.${type}`));
   }
 

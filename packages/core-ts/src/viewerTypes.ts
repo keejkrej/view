@@ -1,6 +1,6 @@
-import type { GridState } from "@view/grid";
+import type { GridState } from "./types";
 
-export type { GridShape, GridState } from "@view/grid";
+export type { GridShape, GridState } from "./types";
 
 export interface WorkspaceScan {
   positions: number[];
@@ -93,15 +93,4 @@ export interface ViewerBackend extends ViewerDataSource {
   saveBbox(workspacePath: string, source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
 }
 
-export interface ViewerCanvasSurfaceProps {
-  frame: FrameResult | null;
-  grid: GridState;
-  excludedCellIds?: Iterable<string>;
-  selectionMode?: boolean;
-  loading?: boolean;
-  emptyText?: string;
-  messages?: ViewerCanvasStatusMessage[];
-  className?: string;
-  onGridChange?: (grid: GridState) => void;
-  onToggleCells?: (cellIds: string[]) => void;
-}
+export type ExcludedCellIdsByPosition = Record<number, string[]>;

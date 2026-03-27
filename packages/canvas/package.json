@@ -1,5 +1,5 @@
 {
-  "name": "@view/view",
+  "name": "@view/canvas",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,8 +15,7 @@
     "dist"
   ],
   "dependencies": {
-    "@view/grid": "workspace:*",
-    "effect": "^3.21.0",
+    "@view/core-ts": "workspace:*",
     "react": "^18.3.1"
   },
   "scripts": {

@@ -8,7 +8,10 @@ import {
   normalizeGridState,
   normalizeRadians,
   toggleCellIds,
-} from "@view/grid";
+  type FrameResult,
+  type GridState,
+  type ViewerCanvasStatusTone,
+} from "@view/core-ts";
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -19,9 +22,6 @@ import {
 } from "react";
 
 import type {
-  FrameResult,
-  GridState,
-  ViewerCanvasStatusTone,
   ViewerCanvasSurfaceProps,
 } from "./types";
 

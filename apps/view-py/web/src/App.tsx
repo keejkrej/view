@@ -1,5 +1,4 @@
 import {
-  ViewerCanvasSurface,
   clamp,
   createDefaultGrid,
   createWebSocketBackend,
@@ -14,7 +13,8 @@ import {
   type ViewerBackend,
   type ViewerCanvasStatusMessage,
   type ViewerSource,
-} from "@view/view";
+} from "@view/core-ts";
+import { ViewerCanvasSurface } from "@view/canvas";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {

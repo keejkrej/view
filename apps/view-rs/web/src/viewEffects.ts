@@ -6,13 +6,13 @@ import type {
   ViewerBackend,
   ViewerSelection,
   ViewerSource,
-} from "@view/view";
+} from "@view/core-ts";
 import {
   clamp,
   coerceSelection,
   createSelection,
   getFrameContrastDomain,
-} from "@view/view";
+} from "@view/core-ts";
 
 import type { ContrastMode } from "./viewStore";
 

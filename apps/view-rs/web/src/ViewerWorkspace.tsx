@@ -11,21 +11,22 @@ import type {
   ViewerCanvasStatusMessage,
   ViewerBackend,
   ViewerSource,
-} from "@view/view";
+} from "@view/core-ts";
 import {
-  ViewerCanvasSurface,
   getFrameContrastDomain,
   makeFrameKey,
-} from "@view/view";
+} from "@view/core-ts";
 import {
   buildBboxCsv,
   clamp,
+  collectEdgeCellIds,
   countVisibleCells,
   degreesToRadians,
   enumerateVisibleGridCells,
   radiansToDegrees,
   type GridShape,
-} from "@view/grid";
+} from "@view/core-ts";
+import { ViewerCanvasSurface } from "@view/canvas";
 import {
   Button,
   Input,
@@ -38,6 +39,7 @@ import {
 } from "@view/ui";
 
 import {
+  excludeCells,
   IDLE_SAVE_STATE,
   patchViewState,
   reloadAutoContrast,
@@ -545,6 +547,13 @@ export default function ViewerWorkspace({
     setSaving(false);
   }, [activeExcludedCellIds, backend, frame, grid, selection, source, workspacePath]);
 
+  const handleExcludeEdgeBboxes = useCallback(() => {
+    if (!frame || !selection) return;
+    const edgeCellIds = collectEdgeCellIds(frame, grid);
+    if (edgeCellIds.length === 0) return;
+    excludeCells(selection.pos, edgeCellIds);
+  }, [frame, grid, selection]);
+
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 flex-col">
@@ -736,6 +745,15 @@ export default function ViewerWorkspace({
                 title="Grid"
                 action={
                   <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-xs"
+                      disabled={!frame || !selection}
+                      onClick={handleExcludeEdgeBboxes}
+                    >
+                      Disable Edge
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"

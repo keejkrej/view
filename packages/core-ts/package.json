@@ -1,5 +1,5 @@
 {
-  "name": "@view/grid",
+  "name": "@view/core-ts",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,6 +14,9 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "effect": "^3.21.0"
+  },
   "scripts": {
     "build": "bunx vite build && bunx tsc -p tsconfig.build.json",
     "test": "bun test",

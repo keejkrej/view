@@ -1,7 +1,7 @@
 import { useStore } from "zustand";
 
-import type { ViewerBackend } from "@view/view";
-import { makeSourceKey } from "@view/view";
+import type { ViewerBackend } from "@view/core-ts";
+import { makeSourceKey } from "@view/core-ts";
 
 import ViewerWorkspace from "./ViewerWorkspace";
 import { setSource, setWorkspacePath, viewStore } from "./viewStore";

@@ -4,6 +4,7 @@ import {
   applyGridWheelGesture,
   buildBboxCsv,
   classifyGridWheelGesture,
+  collectEdgeCellIds,
   collectStrokeToggleCellIds,
   countVisibleCells,
   createDefaultGrid,
@@ -284,6 +285,26 @@ describe("grid utils", () => {
 
     expect(counts.included).toBeGreaterThan(0);
     expect(counts.excluded).toBe(1);
+  });
+
+  test("collects visible cells that touch the frame edge", () => {
+    const edgeCellIds = collectEdgeCellIds(
+      {
+        width: 100,
+        height: 100,
+      },
+      normalizeGridState({
+        enabled: true,
+        spacingA: 50,
+        spacingB: 50,
+        cellWidth: 50,
+        cellHeight: 50,
+      }),
+    );
+
+    expect(edgeCellIds).toContain("-1:0");
+    expect(edgeCellIds).toContain("0:-1");
+    expect(edgeCellIds).not.toContain("0:0");
   });
 
   test("builds bbox csv and clips edge-touching cells", () => {
