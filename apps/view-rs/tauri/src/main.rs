@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
+use nd2_rs::Nd2File;
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -32,6 +33,13 @@ struct WorkspaceScan {
     times: Vec<u32>,
     #[serde(rename = "zSlices")]
     z_slices: Vec<u32>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum ViewerSource {
+    Workspace { path: String },
+    Nd2 { path: String },
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -83,20 +91,20 @@ struct ErrorPayload {
 }
 
 #[derive(Deserialize)]
-struct ScanWorkspacePayload {
-    root: String,
+struct ScanSourcePayload {
+    source: ViewerSource,
 }
 
 #[derive(Deserialize)]
 struct LoadFramePayload {
-    root: String,
+    source: ViewerSource,
     request: FrameRequest,
     contrast: Option<ContrastWindow>,
 }
 
 #[derive(Deserialize)]
 struct SaveBboxPayload {
-    root: String,
+    source: ViewerSource,
     pos: u32,
     csv: String,
 }
@@ -260,7 +268,7 @@ fn load_tiff_frame(path: &Path) -> Result<RawFrame, String> {
     Ok(RawFrame { width, height, data })
 }
 
-fn bbox_csv_path(root: &str, pos: u32) -> PathBuf {
+fn workspace_bbox_csv_path(root: &str, pos: u32) -> PathBuf {
     Path::new(root).join(format!("Pos{pos}_bbox.csv"))
 }
 
@@ -271,9 +279,54 @@ fn pick_workspace() -> Option<String> {
         .map(|path| path.to_string_lossy().to_string())
 }
 
-fn scan_workspace(root: String) -> Result<WorkspaceScan, String> {
-    let root_path = Path::new(&root);
-    let entries = fs::read_dir(root_path).map_err(|err| err.to_string())?;
+#[command]
+fn pick_nd2() -> Option<String> {
+    FileDialog::new()
+        .add_filter("ND2", &["nd2"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+fn nd2_bbox_csv_path(path: &Path, pos: u32) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("source");
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    parent.join(format!("{stem}_Pos{pos}_bbox.csv"))
+}
+
+fn bbox_csv_path(source: &ViewerSource, pos: u32) -> PathBuf {
+    match source {
+        ViewerSource::Workspace { path } => workspace_bbox_csv_path(path, pos),
+        ViewerSource::Nd2 { path } => nd2_bbox_csv_path(Path::new(path), pos),
+    }
+}
+
+fn dimension_size(sizes: &std::collections::HashMap<String, usize>, key: &str) -> usize {
+    sizes.get(key).copied().unwrap_or(1)
+}
+
+fn dimension_values(sizes: &std::collections::HashMap<String, usize>, key: &str) -> Vec<u32> {
+    (0..dimension_size(sizes, key))
+        .filter_map(|value| u32::try_from(value).ok())
+        .collect()
+}
+
+fn scan_nd2(path: &Path) -> Result<WorkspaceScan, String> {
+    let mut nd2 = Nd2File::open(path).map_err(|err| err.to_string())?;
+    let sizes = nd2.sizes().map_err(|err| err.to_string())?;
+    Ok(WorkspaceScan {
+        positions: dimension_values(&sizes, "P"),
+        channels: dimension_values(&sizes, "C"),
+        times: dimension_values(&sizes, "T"),
+        z_slices: dimension_values(&sizes, "Z"),
+    })
+}
+
+fn scan_workspace(root: &Path) -> Result<WorkspaceScan, String> {
+    let entries = fs::read_dir(root).map_err(|err| err.to_string())?;
     let mut position_dirs = Vec::<(u32, PathBuf)>::new();
     for entry in entries.flatten() {
         let path = entry.path();
@@ -311,8 +364,17 @@ fn scan_workspace(root: String) -> Result<WorkspaceScan, String> {
     })
 }
 
-fn load_frame(root: String, request: FrameRequest) -> Result<RawFrame, String> {
-    let pos_dir = find_position_dir(Path::new(&root), request.pos)?;
+fn validate_request_index(label: &str, index: u32, size: usize) -> Result<usize, String> {
+    let effective_size = size.max(1);
+    let index = index as usize;
+    if index >= effective_size {
+        return Err(format!("{label} index {index} is out of range"));
+    }
+    Ok(index)
+}
+
+fn load_workspace_frame(root: &Path, request: FrameRequest) -> Result<RawFrame, String> {
+    let pos_dir = find_position_dir(root, request.pos)?;
     let matching = collect_tiffs(&pos_dir)
         .into_iter()
         .find(|(_, parsed)| {
@@ -326,8 +388,47 @@ fn load_frame(root: String, request: FrameRequest) -> Result<RawFrame, String> {
     load_tiff_frame(&matching)
 }
 
-fn save_bbox(root: String, pos: u32, csv: String) -> SaveBboxResponse {
-    if let Err(error) = fs::create_dir_all(&root) {
+fn load_nd2_frame(path: &Path, request: FrameRequest) -> Result<RawFrame, String> {
+    let mut nd2 = Nd2File::open(path).map_err(|err| err.to_string())?;
+    let sizes = nd2.sizes().map_err(|err| err.to_string())?;
+    let width = u32::try_from(dimension_size(&sizes, "X")).map_err(|err| err.to_string())?;
+    let height = u32::try_from(dimension_size(&sizes, "Y")).map_err(|err| err.to_string())?;
+
+    let pos = validate_request_index("Position", request.pos, dimension_size(&sizes, "P"))?;
+    let time = validate_request_index("Time", request.time, dimension_size(&sizes, "T"))?;
+    let channel = validate_request_index("Channel", request.channel, dimension_size(&sizes, "C"))?;
+    let z = validate_request_index("Z", request.z, dimension_size(&sizes, "Z"))?;
+
+    let data = nd2
+        .read_frame_2d(pos, time, channel, z)
+        .map_err(|err| err.to_string())?;
+
+    Ok(RawFrame { width, height, data })
+}
+
+fn scan_source(source: ViewerSource) -> Result<WorkspaceScan, String> {
+    match source {
+        ViewerSource::Workspace { path } => scan_workspace(Path::new(&path)),
+        ViewerSource::Nd2 { path } => scan_nd2(Path::new(&path)),
+    }
+}
+
+fn load_frame(source: ViewerSource, request: FrameRequest) -> Result<RawFrame, String> {
+    match source {
+        ViewerSource::Workspace { path } => load_workspace_frame(Path::new(&path), request),
+        ViewerSource::Nd2 { path } => load_nd2_frame(Path::new(&path), request),
+    }
+}
+
+fn save_bbox(source: ViewerSource, pos: u32, csv: String) -> SaveBboxResponse {
+    let target = bbox_csv_path(&source, pos);
+    let Some(parent) = target.parent() else {
+        return SaveBboxResponse {
+            ok: false,
+            error: Some("Unable to resolve bbox output directory".to_string()),
+        };
+    };
+    if let Err(error) = fs::create_dir_all(parent) {
         return SaveBboxResponse {
             ok: false,
             error: Some(error.to_string()),
@@ -340,7 +441,7 @@ fn save_bbox(root: String, pos: u32, csv: String) -> SaveBboxResponse {
         format!("{csv}\n")
     };
 
-    match fs::write(bbox_csv_path(&root, pos), normalized) {
+    match fs::write(target, normalized) {
         Ok(_) => SaveBboxResponse { ok: true, error: None },
         Err(error) => SaveBboxResponse {
             ok: false,
@@ -437,11 +538,11 @@ fn handle_ws_request(text: &str) -> Option<String> {
     let id = envelope.id.clone();
 
     let response = match envelope.kind.as_str() {
-        "scan_workspace" => {
-            let payload = serde_json::from_value::<ScanWorkspacePayload>(envelope.payload)
+        "scan_source" => {
+            let payload = serde_json::from_value::<ScanSourcePayload>(envelope.payload)
                 .map_err(|err| err.to_string());
-            match payload.and_then(|payload| scan_workspace(payload.root)) {
-                Ok(scan) => ok_response(id, "scan_workspace_result", scan),
+            match payload.and_then(|payload| scan_source(payload.source)) {
+                Ok(scan) => ok_response(id, "scan_source_result", scan),
                 Err(message) => error_response(id, message),
             }
         }
@@ -449,7 +550,7 @@ fn handle_ws_request(text: &str) -> Option<String> {
             let payload = serde_json::from_value::<LoadFramePayload>(envelope.payload)
                 .map_err(|err| err.to_string());
             match payload.and_then(|payload| {
-                let raw = load_frame(payload.root, payload.request)?;
+                let raw = load_frame(payload.source, payload.request)?;
                 let suggested = auto_contrast(&raw.data);
                 let applied = normalize_contrast(payload.contrast.as_ref().unwrap_or(&suggested));
                 let bytes = apply_contrast(&raw.data, &applied);
@@ -471,7 +572,7 @@ fn handle_ws_request(text: &str) -> Option<String> {
             let payload = serde_json::from_value::<SaveBboxPayload>(envelope.payload)
                 .map_err(|err| err.to_string());
             match payload {
-                Ok(payload) => ok_response(id, "save_bbox_result", save_bbox(payload.root, payload.pos, payload.csv)),
+                Ok(payload) => ok_response(id, "save_bbox_result", save_bbox(payload.source, payload.pos, payload.csv)),
                 Err(message) => error_response(id, message),
             }
         }
@@ -530,7 +631,7 @@ fn main() {
     start_backend_server();
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![pick_workspace])
+        .invoke_handler(tauri::generate_handler![pick_workspace, pick_nd2])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -538,10 +639,12 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
         auto_contrast, bbox_csv_path, parse_pos_dir_name, parse_tiff_name, save_bbox, ContrastWindow,
+        ViewerSource,
     };
 
     #[test]
@@ -574,17 +677,28 @@ mod tests {
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!("view-tauri-save-bbox-{unique}"));
-        let root_string = root.to_string_lossy().to_string();
+        let source = ViewerSource::Workspace {
+            path: root.to_string_lossy().to_string(),
+        };
 
-        let result = save_bbox(root_string.clone(), 7, "crop,x,y,w,h\n0,1,2,3,4".to_string());
+        let result = save_bbox(source.clone(), 7, "crop,x,y,w,h\n0,1,2,3,4".to_string());
         assert!(result.ok);
 
-        let saved_path = bbox_csv_path(&root_string, 7);
+        let saved_path = bbox_csv_path(&source, 7);
         let saved = fs::read_to_string(&saved_path).unwrap();
         assert_eq!(saved, "crop,x,y,w,h\n0,1,2,3,4\n");
 
         let _ = fs::remove_file(saved_path);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn nd2_bbox_path_uses_input_stem() {
+        let source = ViewerSource::Nd2 {
+            path: r"C:\data\scan01.nd2".to_string(),
+        };
+        let path = bbox_csv_path(&source, 3);
+        assert_eq!(path, PathBuf::from(r"C:\data\scan01_Pos3_bbox.csv"));
     }
 
     #[test]

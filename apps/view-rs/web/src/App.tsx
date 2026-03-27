@@ -10,6 +10,7 @@ export default function App() {
     <ViewApp
       backend={backend}
       pickWorkspace={() => invoke<string | null>("pick_workspace")}
+      pickNd2={() => invoke<string | null>("pick_nd2")}
     />
   );
 }

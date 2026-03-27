@@ -5,6 +5,18 @@ export interface WorkspaceScan {
   zSlices: number[];
 }
 
+export interface WorkspaceSource {
+  kind: "workspace";
+  path: string;
+}
+
+export interface Nd2Source {
+  kind: "nd2";
+  path: string;
+}
+
+export type ViewerSource = WorkspaceSource | Nd2Source;
+
 export type PixelType =
   | "uint8"
   | "uint8clamped"
@@ -41,8 +53,8 @@ export interface FrameResult {
 }
 
 export interface ViewerDataSource {
-  scanWorkspace(root: string): Promise<WorkspaceScan>;
-  loadFrame(root: string, request: FrameRequest, options?: LoadFrameOptions): Promise<FrameResult>;
+  scanSource(source: ViewerSource): Promise<WorkspaceScan>;
+  loadFrame(source: ViewerSource, request: FrameRequest, options?: LoadFrameOptions): Promise<FrameResult>;
 }
 
 export type GridShape = "square" | "hex";
@@ -89,7 +101,7 @@ export interface SaveBboxResponse {
 }
 
 export interface ViewerBackend extends ViewerDataSource {
-  saveBbox(root: string, pos: number, csv: string): Promise<SaveBboxResponse>;
+  saveBbox(source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
 }
 
 export interface ViewerCanvasSurfaceProps {
@@ -102,5 +114,5 @@ export interface ViewerCanvasSurfaceProps {
   messages?: ViewerCanvasStatusMessage[];
   className?: string;
   onGridChange?: (grid: GridState) => void;
-  onExcludeCells?: (cellIds: string[]) => void;
+  onToggleCells?: (cellIds: string[]) => void;
 }

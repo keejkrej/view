@@ -47,7 +47,7 @@ afterEach(() => {
 describe("websocket backend", () => {
   test("resolves scan requests from websocket responses", async () => {
     const backend = createWebSocketBackend({ url: "ws://example.test" });
-    const promise = backend.scanWorkspace("/tmp/workspace");
+    const promise = backend.scanSource({ kind: "workspace", path: "/tmp/workspace" });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -55,12 +55,12 @@ describe("websocket backend", () => {
     expect(socket).not.toBeNull();
     const sent = JSON.parse(socket!.sent[0] ?? "{}") as { id: string; type: string };
 
-    expect(sent.type).toBe("scan_workspace");
+    expect(sent.type).toBe("scan_source");
 
     socket!.emit("message", {
       data: JSON.stringify({
         id: sent.id,
-        type: "scan_workspace_result",
+        type: "scan_source_result",
         payload: {
           positions: [1],
           channels: [2],
@@ -80,7 +80,7 @@ describe("websocket backend", () => {
 
   test("rejects backend error payloads", async () => {
     const backend = createWebSocketBackend({ url: "ws://example.test" });
-    const promise = backend.saveBbox("/tmp/workspace", 7, "crop,x,y,w,h");
+    const promise = backend.saveBbox({ kind: "workspace", path: "/tmp/workspace" }, 7, "crop,x,y,w,h");
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 

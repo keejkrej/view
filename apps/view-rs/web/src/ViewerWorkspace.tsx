@@ -17,6 +17,7 @@ import type {
   ViewerCanvasStatusMessage,
   ViewerBackend,
   ViewerSelection,
+  ViewerSource,
   WorkspaceScan,
 } from "@view/view";
 import {
@@ -32,6 +33,7 @@ import {
   makeFrameKey,
   normalizeGridState,
   radiansToDegrees,
+  toggleCellIds,
 } from "@view/view";
 import {
   Button,
@@ -61,7 +63,7 @@ type SaveState =
 type ContrastMode = "auto" | "manual";
 
 interface ViewerWorkspaceProps {
-  root: string;
+  source: ViewerSource | null;
   backend: ViewerBackend;
   initialGrid?: Partial<GridState>;
   initialSelection?: Partial<ViewerSelection>;
@@ -69,7 +71,8 @@ interface ViewerWorkspaceProps {
   onGridChange?: (grid: GridState) => void;
   onExcludedCellIdsChange?: (next: ExcludedCellIdsByPosition) => void;
   onOpenWorkspace: () => Promise<void>;
-  onClearWorkspace: () => void;
+  onOpenNd2: () => Promise<void>;
+  onClearSource: () => void;
 }
 
 interface CachedFrame {
@@ -239,7 +242,7 @@ function contrastWindowForFrame(frame: FrameResult | null): ContrastWindow {
 }
 
 export default function ViewerWorkspace({
-  root,
+  source,
   backend,
   initialGrid,
   initialSelection,
@@ -247,7 +250,8 @@ export default function ViewerWorkspace({
   onGridChange,
   onExcludedCellIdsChange,
   onOpenWorkspace,
-  onClearWorkspace,
+  onOpenNd2,
+  onClearSource,
 }: ViewerWorkspaceProps) {
   const frameCacheRef = useRef(new FrameCache());
 
@@ -278,7 +282,7 @@ export default function ViewerWorkspace({
   }, [excludedCellIdsByPosition, onExcludedCellIdsChange]);
 
   useEffect(() => {
-    if (!root) {
+    if (!source) {
       setLoading(false);
       setError(null);
       setFrame(null);
@@ -302,7 +306,7 @@ export default function ViewerWorkspace({
 
     void (async () => {
       try {
-        const nextScan = await backend.scanWorkspace(root);
+        const nextScan = await backend.scanSource(source);
         if (cancelled) return;
         setScan(nextScan);
         setSelection(coerceSelection(nextScan, createSelection(nextScan, initialSelection)));
@@ -317,15 +321,15 @@ export default function ViewerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [backend, initialSelection, root]);
+  }, [backend, initialSelection, source]);
 
   const contrastRequestKey =
     contrastMode === "auto" ? `auto:${contrastReloadToken}` : `${contrastMin}:${contrastMax}`;
 
   useEffect(() => {
-    if (!root || !selection) return;
+    if (!source || !selection) return;
 
-    const cacheKey = `${makeFrameKey(root, selection)}:${contrastRequestKey}`;
+    const cacheKey = `${makeFrameKey(source, selection)}:${contrastRequestKey}`;
     const requestedContrast =
       contrastMode === "manual" ? { min: contrastMin, max: contrastMax } : undefined;
 
@@ -351,7 +355,7 @@ export default function ViewerWorkspace({
     void (async () => {
       try {
         const loaded = await backend.loadFrame(
-          root,
+          source,
           selection,
           requestedContrast ? { contrast: requestedContrast } : undefined,
         );
@@ -370,7 +374,7 @@ export default function ViewerWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [backend, contrastMax, contrastMin, contrastMode, contrastRequestKey, root, selection]);
+  }, [backend, contrastMax, contrastMin, contrastMode, contrastRequestKey, source, selection]);
 
   const setSelectionKey = useCallback(
     <K extends keyof ViewerSelection>(key: K, value: ViewerSelection[K]) => {
@@ -432,23 +436,21 @@ export default function ViewerWorkspace({
   );
   const includedVisibleCount = visibleCells.length - excludedVisibleCount;
 
-  const addExcludedCells = useCallback((position: number, cellIds: Iterable<string>) => {
+  const toggleExcludedCells = useCallback((position: number, cellIds: Iterable<string>) => {
     setExcludedCellIdsByPosition((current) => {
-      const active = new Set(current[position] ?? []);
-      let changed = false;
-      for (const cellId of cellIds) {
-        if (!active.has(cellId)) {
-          active.add(cellId);
-          changed = true;
-        }
+      const nextCellIds = toggleCellIds(current[position] ?? [], cellIds);
+      const currentCellIds = current[position] ?? [];
+      if (
+        nextCellIds.length === currentCellIds.length &&
+        nextCellIds.every((cellId, index) => cellId === currentCellIds[index])
+      ) {
+        return current;
       }
-      if (!changed) return current;
-
       const next = { ...current };
-      if (active.size === 0) {
+      if (nextCellIds.length === 0) {
         delete next[position];
       } else {
-        next[position] = Array.from(active).sort();
+        next[position] = nextCellIds;
       }
       return next;
     });
@@ -470,19 +472,21 @@ export default function ViewerWorkspace({
   }, [error, saveState]);
 
   const emptyText = useMemo(() => {
-    if (!root) return "Open a workspace to load frames";
-    if (scan && scan.positions.length === 0) return "No frames found in workspace";
+    if (!source) return "Open a workspace or ND2 file to load frames";
+    if (scan && scan.positions.length === 0) {
+      return source.kind === "nd2" ? "No frames found in ND2 file" : "No frames found in workspace";
+    }
     return "No frame loaded";
-  }, [root, scan]);
+  }, [scan, source]);
 
   const handleSave = useCallback(async () => {
-    if (!root || !selection || !frame) return;
+    if (!source || !selection || !frame) return;
 
     setSaving(true);
     setSaveState({ type: "idle", message: null });
     try {
       const response = await backend.saveBbox(
-        root,
+        source,
         selection.pos,
         buildBboxCsv(frame, grid, activeExcludedCellIds),
       );
@@ -492,7 +496,7 @@ export default function ViewerWorkspace({
         return;
       }
 
-      setSaveState({ type: "success", message: `Saved Pos${selection.pos}_bbox.csv` });
+      setSaveState({ type: "success", message: `Saved bbox CSV for Pos${selection.pos}` });
     } catch (nextError) {
       setSaveState({
         type: "error",
@@ -501,7 +505,7 @@ export default function ViewerWorkspace({
     } finally {
       setSaving(false);
     }
-  }, [activeExcludedCellIds, backend, frame, grid, root, selection]);
+  }, [activeExcludedCellIds, backend, frame, grid, selection, source]);
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -515,8 +519,11 @@ export default function ViewerWorkspace({
                   Open Workspace
                 </span>
               </Button>
-              {root ? (
-                <Button size="sm" variant="outline" onClick={onClearWorkspace}>
+              <Button size="sm" variant="outline" onClick={() => void onOpenNd2()}>
+                Open ND2
+              </Button>
+              {source ? (
+                <Button size="sm" variant="outline" onClick={onClearSource}>
                   <span className="inline-flex items-center gap-2">
                     <X className="size-4" />
                     Clear
@@ -526,7 +533,7 @@ export default function ViewerWorkspace({
             </div>
 
             <p className="pointer-events-none absolute left-1/2 max-w-[min(60vw,48rem)] -translate-x-1/2 truncate text-center text-sm text-muted-foreground">
-              {root || "No workspace selected"}
+              {source?.path || "No source selected"}
             </p>
           </div>
         </header>
@@ -653,9 +660,9 @@ export default function ViewerWorkspace({
                         setGrid(nextGrid);
                         setSaveState({ type: "idle", message: null });
                       }}
-                      onExcludeCells={(cellIds) => {
+                      onToggleCells={(cellIds) => {
                         if (!selection || cellIds.length === 0) return;
-                        addExcludedCells(selection.pos, cellIds);
+                        toggleExcludedCells(selection.pos, cellIds);
                       }}
                     />
                   </div>

@@ -7,6 +7,7 @@ export type {
   GridShape,
   GridState,
   LoadFrameOptions,
+  Nd2Source,
   ViewerBackend,
   ViewerDataSource,
   SaveBboxResponse,
@@ -14,6 +15,8 @@ export type {
   ViewerCanvasStatusTone,
   ViewerCanvasSurfaceProps,
   ViewerSelection,
+  ViewerSource,
+  WorkspaceSource,
   WorkspaceScan,
 } from "./types";
 export type { GridCellRect } from "./utils";
@@ -23,6 +26,7 @@ export {
   buildBboxCsv,
   classifyGridWheelGesture,
   clamp,
+  collectStrokeToggleCellIds,
   coerceSelection,
   createDefaultGrid,
   createSelection,
@@ -34,9 +38,11 @@ export {
   gridBasis,
   isTouchpadLikeGridWheelGesture,
   makeFrameKey,
+  makeSourceKey,
   normalizeRadians,
   normalizeGridState,
   radiansToDegrees,
+  toggleCellIds,
 } from "./utils";
 export { default as ViewerCanvasSurface } from "./ViewerCanvasSurface";
 export { createWebSocketBackend } from "./ws";

@@ -11,6 +11,7 @@ import {
   type GridState,
   type ViewerBackend,
   type ViewerCanvasStatusMessage,
+  type ViewerSource,
 } from "@view/view";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -27,7 +28,7 @@ type ContrastMode = "auto" | "manual";
 
 interface SurfaceState {
   backendUrl: string | null;
-  root: string | null;
+  source: ViewerSource | null;
   request: FrameRequest | null;
   contrastMode: ContrastMode;
   contrast: ContrastWindow | null;
@@ -95,7 +96,14 @@ function normalizeHostState(next: HostCanvasState): SurfaceState {
   const contrastMode: ContrastMode = contrast?.mode === "manual" ? "manual" : "auto";
   return {
     backendUrl: typeof next.backendUrl === "string" && next.backendUrl ? next.backendUrl : null,
-    root: typeof next.root === "string" && next.root ? next.root : null,
+    source:
+      next.source &&
+      typeof next.source === "object" &&
+      (next.source.kind === "workspace" || next.source.kind === "nd2") &&
+      typeof next.source.path === "string" &&
+      next.source.path
+        ? { kind: next.source.kind, path: next.source.path }
+        : null,
     request:
       request &&
       typeof request === "object" &&
@@ -118,18 +126,19 @@ function normalizeHostState(next: HostCanvasState): SurfaceState {
       ? next.excludedCellIds.filter((cellId): cellId is string => typeof cellId === "string")
       : [],
     selectionMode: next.selectionMode === true,
-    emptyText: typeof next.emptyText === "string" ? next.emptyText : "Open a workspace to load frames",
+    emptyText:
+      typeof next.emptyText === "string" ? next.emptyText : "Open a workspace or ND2 file to load frames",
     messages: normalizeMessages(next.messages),
   };
 }
 
 function loadKeyForState(state: SurfaceState): string | null {
-  if (!state.root || !state.request) return null;
+  if (!state.source || !state.request) return null;
   const contrastKey =
     state.contrastMode === "manual" && state.contrast
       ? `${state.contrast.min}:${state.contrast.max}`
       : "auto";
-  return `${makeFrameKey(state.root, state.request)}:${contrastKey}`;
+  return `${makeFrameKey(state.source, state.request)}:${contrastKey}`;
 }
 
 function notifyFrameLoaded(frame: FrameResult) {
@@ -146,13 +155,13 @@ export default function App() {
   const frameCacheRef = useRef(new FrameCache());
   const [surfaceState, setSurfaceState] = useState<SurfaceState>(() =>
     normalizeHostState({
-      root: null,
+      source: null,
       request: null,
       contrast: { mode: "auto", value: null },
       grid: createDefaultGrid(),
       excludedCellIds: [],
       selectionMode: false,
-      emptyText: "Open a workspace to load frames",
+      emptyText: "Open a workspace or ND2 file to load frames",
       messages: [],
     }),
   );
@@ -168,13 +177,13 @@ export default function App() {
   }, [surfaceState.backendUrl]);
 
   const requestKey = useMemo(() => loadKeyForState(surfaceState), [surfaceState]);
-  const requestRoot = surfaceState.root;
+  const requestSource = surfaceState.source;
   const requestSelection = surfaceState.request;
   const requestContrast =
     surfaceState.contrastMode === "manual" && surfaceState.contrast ? surfaceState.contrast : undefined;
 
   useEffect(() => {
-    if (!backend || !requestRoot || !requestSelection || !requestKey) {
+    if (!backend || !requestSource || !requestSelection || !requestKey) {
       setFrame(null);
       setLoading(false);
       setLoadError(null);
@@ -198,7 +207,7 @@ export default function App() {
     void (async () => {
       try {
         const loaded = await backend.loadFrame(
-          requestRoot,
+          requestSource,
           requestSelection,
           requestContrast ? { contrast: requestContrast } : undefined,
         );
@@ -222,7 +231,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [backend, requestContrast, requestKey, requestRoot, requestSelection]);
+  }, [backend, requestContrast, requestKey, requestSelection, requestSource]);
 
   const messages = useMemo(() => {
     if (!loadError) return surfaceState.messages;

@@ -4,6 +4,7 @@ import type {
   LoadFrameOptions,
   SaveBboxResponse,
   ViewerBackend,
+  ViewerSource,
   WorkspaceScan,
 } from "./types";
 
@@ -65,17 +66,17 @@ class WebSocketBackend implements ViewerBackend {
     this.url = options.url;
   }
 
-  async scanWorkspace(root: string): Promise<WorkspaceScan> {
-    return this.request<WorkspaceScan>("scan_workspace", { root });
+  async scanSource(source: ViewerSource): Promise<WorkspaceScan> {
+    return this.request<WorkspaceScan>("scan_source", { source });
   }
 
   async loadFrame(
-    root: string,
+    source: ViewerSource,
     request: FrameRequest,
     options?: LoadFrameOptions,
   ): Promise<FrameResult> {
     const payload = await this.request<FramePayload>("load_frame", {
-      root,
+      source,
       request,
       contrast: options?.contrast ?? null,
     });
@@ -90,8 +91,8 @@ class WebSocketBackend implements ViewerBackend {
     };
   }
 
-  async saveBbox(root: string, pos: number, csv: string): Promise<SaveBboxResponse> {
-    return this.request<SaveBboxResponse>("save_bbox", { root, pos, csv });
+  async saveBbox(source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse> {
+    return this.request<SaveBboxResponse>("save_bbox", { source, pos, csv });
   }
 
   private async request<T>(type: string, payload: unknown): Promise<T> {

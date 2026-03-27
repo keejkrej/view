@@ -2,6 +2,7 @@ import type {
   ContrastWindow,
   FrameRequest,
   GridState,
+  ViewerSource,
   ViewerCanvasStatusMessage,
 } from "@view/view";
 
@@ -31,7 +32,7 @@ interface HostContrastState {
 
 export interface HostCanvasState {
   backendUrl?: string;
-  root?: string | null;
+  source?: ViewerSource | null;
   request?: FrameRequest | null;
   contrast?: HostContrastState;
   grid?: Partial<GridState>;

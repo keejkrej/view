@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
-import type { GridState, ViewerBackend } from "@view/view";
-import { normalizeGridState } from "@view/view";
+import type { GridState, ViewerBackend, ViewerSource } from "@view/view";
+import { makeSourceKey, normalizeGridState } from "@view/view";
 
 import ViewerWorkspace from "./ViewerWorkspace";
 
+const LAST_SOURCE_KEY = "view.lastSource";
 const LAST_ROOT_KEY = "view.lastRoot";
 const LAST_GRID_KEY = "view.grid";
 const EXCLUDED_BBOX_KEY_PREFIX = "view.excludedBboxes";
@@ -33,18 +34,48 @@ function readStoredGrid(storage: StorageLike | null): GridState | undefined {
   }
 }
 
-function excludedBboxStorageKey(root: string): string {
-  return `${EXCLUDED_BBOX_KEY_PREFIX}:${encodeURIComponent(root)}`;
+function parseStoredSource(raw: string | null): ViewerSource | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<ViewerSource>;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed.kind === "workspace" || parsed.kind === "nd2") &&
+      typeof parsed.path === "string" &&
+      parsed.path
+    ) {
+      return { kind: parsed.kind, path: parsed.path };
+    }
+  } catch {
+    if (raw) {
+      return { kind: "workspace", path: raw };
+    }
+  }
+
+  return null;
+}
+
+function readStoredSource(storage: StorageLike | null): ViewerSource | null {
+  return parseStoredSource(storage?.getItem(LAST_SOURCE_KEY) ?? storage?.getItem(LAST_ROOT_KEY) ?? null);
+}
+
+function excludedBboxStorageKey(source: ViewerSource): string {
+  return `${EXCLUDED_BBOX_KEY_PREFIX}:${encodeURIComponent(makeSourceKey(source))}`;
 }
 
 function readStoredExcludedCellIds(
   storage: StorageLike | null,
-  root: string,
+  source: ViewerSource | null,
 ): ExcludedCellIdsByPosition {
-  if (!storage || !root) return {};
+  if (!storage || !source) return {};
 
   try {
-    const raw = storage.getItem(excludedBboxStorageKey(root));
+    let raw = storage.getItem(excludedBboxStorageKey(source));
+    if (!raw && source.kind === "workspace") {
+      raw = storage.getItem(`${EXCLUDED_BBOX_KEY_PREFIX}:${encodeURIComponent(source.path)}`);
+    }
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const entries = Object.entries(parsed).flatMap(([position, value]) => {
@@ -67,53 +98,66 @@ function readStoredExcludedCellIds(
 interface ViewAppProps {
   backend: ViewerBackend;
   pickWorkspace: () => Promise<string | null>;
+  pickNd2: () => Promise<string | null>;
 }
 
-export default function ViewApp({ backend, pickWorkspace }: ViewAppProps) {
+export default function ViewApp({ backend, pickWorkspace, pickNd2 }: ViewAppProps) {
   const storage = resolveStorage();
-  const [root, setRoot] = useState<string>(() => storage?.getItem(LAST_ROOT_KEY) ?? "");
+  const [source, setSource] = useState<ViewerSource | null>(() => readStoredSource(storage));
   const [initialGrid] = useState<GridState | undefined>(() => readStoredGrid(storage));
   const [excludedCellIdsByPosition, setExcludedCellIdsByPosition] = useState<ExcludedCellIdsByPosition>(
-    () => readStoredExcludedCellIds(storage, storage?.getItem(LAST_ROOT_KEY) ?? ""),
+    () => readStoredExcludedCellIds(storage, readStoredSource(storage)),
   );
 
   useEffect(() => {
     if (!storage) return;
-    if (root) {
-      storage.setItem(LAST_ROOT_KEY, root);
+    if (source) {
+      storage.setItem(LAST_SOURCE_KEY, JSON.stringify(source));
+      if (source.kind === "workspace") {
+        storage.setItem(LAST_ROOT_KEY, source.path);
+      } else {
+        storage.removeItem(LAST_ROOT_KEY);
+      }
     } else {
+      storage.removeItem(LAST_SOURCE_KEY);
       storage.removeItem(LAST_ROOT_KEY);
     }
-  }, [root, storage]);
+  }, [source, storage]);
 
   useEffect(() => {
-    setExcludedCellIdsByPosition(readStoredExcludedCellIds(storage, root));
-  }, [root, storage]);
+    setExcludedCellIdsByPosition(readStoredExcludedCellIds(storage, source));
+  }, [source, storage]);
 
   useEffect(() => {
-    if (!storage || !root) return;
+    if (!storage || !source) return;
     storage.setItem(
-      excludedBboxStorageKey(root),
+      excludedBboxStorageKey(source),
       JSON.stringify(excludedCellIdsByPosition),
     );
-  }, [excludedCellIdsByPosition, root, storage]);
+  }, [excludedCellIdsByPosition, source, storage]);
 
   const handlePickWorkspace = async () => {
     const selected = await pickWorkspace();
-    if (selected) setRoot(selected);
+    if (selected) setSource({ kind: "workspace", path: selected });
+  };
+
+  const handlePickNd2 = async () => {
+    const selected = await pickNd2();
+    if (selected) setSource({ kind: "nd2", path: selected });
   };
 
   return (
     <ViewerWorkspace
-      key={root || "no-root"}
-      root={root}
+      key={source ? makeSourceKey(source) : "no-source"}
+      source={source}
       backend={backend}
       initialGrid={initialGrid}
       initialExcludedCellIdsByPosition={excludedCellIdsByPosition}
       onExcludedCellIdsChange={setExcludedCellIdsByPosition}
       onGridChange={(grid) => storage?.setItem(LAST_GRID_KEY, JSON.stringify(grid))}
       onOpenWorkspace={handlePickWorkspace}
-      onClearWorkspace={() => setRoot("")}
+      onOpenNd2={handlePickNd2}
+      onClearSource={() => setSource(null)}
     />
   );
 }

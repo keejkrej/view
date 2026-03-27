@@ -1,4 +1,13 @@
-import type { FrameResult, GridShape, GridState, PixelArray, PixelType, ViewerSelection, WorkspaceScan } from "./types";
+import type {
+  FrameResult,
+  GridShape,
+  GridState,
+  PixelArray,
+  PixelType,
+  ViewerSelection,
+  ViewerSource,
+  WorkspaceScan,
+} from "./types";
 
 export const MAX_GRID_RECTS = 8000;
 const SAMPLE_SIZE = 2048;
@@ -213,6 +222,44 @@ export function findGridCellAtPoint(
   return null;
 }
 
+export function collectStrokeToggleCellIds(
+  frame: FrameResult,
+  grid: GridState,
+  startPoint: { x: number; y: number },
+  endPoint: { x: number; y: number },
+  alreadyToggledCellIds?: Iterable<string>,
+): string[] {
+  const sampleDistance = Math.max(4, Math.min(grid.cellWidth, grid.cellHeight) / 4);
+  const distance = Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y);
+  const steps = Math.max(1, Math.ceil(distance / sampleDistance));
+  const skippedCellIds = new Set(alreadyToggledCellIds ?? []);
+  const hitCellIds = new Set<string>();
+
+  for (let step = 0; step <= steps; step += 1) {
+    const t = step / steps;
+    const x = startPoint.x + (endPoint.x - startPoint.x) * t;
+    const y = startPoint.y + (endPoint.y - startPoint.y) * t;
+    const cell = findGridCellAtPoint(frame, grid, x, y);
+    if (cell && !skippedCellIds.has(cell.id)) {
+      hitCellIds.add(cell.id);
+    }
+  }
+
+  return Array.from(hitCellIds);
+}
+
+export function toggleCellIds(currentCellIds: Iterable<string>, cellIdsToToggle: Iterable<string>): string[] {
+  const activeCellIds = new Set(currentCellIds);
+  for (const cellId of new Set(cellIdsToToggle)) {
+    if (activeCellIds.has(cellId)) {
+      activeCellIds.delete(cellId);
+    } else {
+      activeCellIds.add(cellId);
+    }
+  }
+  return Array.from(activeCellIds).sort();
+}
+
 export function buildBboxCsv(
   frame: FrameResult,
   grid: GridState,
@@ -397,6 +444,10 @@ export function applyGridWheelGesture(
   });
 }
 
-export function makeFrameKey(root: string, selection: ViewerSelection): string {
-  return `${root}:${selection.pos}:${selection.channel}:${selection.time}:${selection.z}`;
+export function makeSourceKey(source: ViewerSource): string {
+  return `${source.kind}:${source.path}`;
+}
+
+export function makeFrameKey(source: ViewerSource, selection: ViewerSelection): string {
+  return `${makeSourceKey(source)}:${selection.pos}:${selection.channel}:${selection.time}:${selection.z}`;
 }

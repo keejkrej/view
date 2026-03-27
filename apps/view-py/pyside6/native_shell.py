@@ -145,6 +145,36 @@ def collect_tiffs(folder: Path) -> list[tuple[Path, ParsedTiffName]]:
     return collected
 
 
+def normalize_source(source: Any) -> dict[str, str]:
+    if not isinstance(source, dict):
+        raise ValueError("Invalid source payload")
+    kind = source.get("kind")
+    path = source.get("path")
+    if kind not in {"workspace", "nd2"} or not isinstance(path, str) or not path:
+        raise ValueError("Invalid source payload")
+    return {"kind": kind, "path": path}
+
+
+def nd2_dimension_size(sizes: dict[str, int], key: str) -> int:
+    return int(sizes.get(key, 1))
+
+
+def nd2_dimension_values(sizes: dict[str, int], key: str) -> list[int]:
+    return list(range(nd2_dimension_size(sizes, key)))
+
+
+def read_nd2_frame_2d(handle: Any, p: int, t: int, c: int, z: int) -> np.ndarray:
+    sizes = handle.sizes
+    dim_order = [dimension for dimension in sizes.keys() if dimension not in ("Y", "X")]
+    coord_shape = tuple(int(sizes[dimension]) for dimension in dim_order)
+    idx = tuple({"P": p, "T": t, "C": c, "Z": z}.get(dimension, 0) for dimension in dim_order)
+    seq_index = int(np.ravel_multi_index(idx, coord_shape))
+    frame = handle.read_frame(seq_index)
+    if getattr(frame, "ndim", 0) == 3:
+        return np.asarray(frame[0])
+    return np.asarray(frame)
+
+
 def scan_workspace(root: str) -> dict[str, Any]:
     root_path = Path(root)
     position_dirs: list[tuple[int, Path]] = []
@@ -174,6 +204,27 @@ def scan_workspace(root: str) -> dict[str, Any]:
         "times": sorted(times),
         "zSlices": sorted(z_slices),
     }
+
+
+def scan_nd2(path: str) -> dict[str, Any]:
+    import nd2
+
+    with nd2.ND2File(path) as handle:
+        sizes = {str(key): int(value) for key, value in handle.sizes.items()}
+
+    return {
+        "positions": nd2_dimension_values(sizes, "P"),
+        "channels": nd2_dimension_values(sizes, "C"),
+        "times": nd2_dimension_values(sizes, "T"),
+        "zSlices": nd2_dimension_values(sizes, "Z"),
+    }
+
+
+def scan_source(source: dict[str, str]) -> dict[str, Any]:
+    normalized = normalize_source(source)
+    if normalized["kind"] == "workspace":
+        return scan_workspace(normalized["path"])
+    return scan_nd2(normalized["path"])
 
 
 def app_icon() -> QIcon:
@@ -247,6 +298,41 @@ def load_frame(root: str, request: dict[str, int]) -> tuple[int, int, np.ndarray
     return width, height, grayscale
 
 
+def validate_nd2_index(label: str, value: int, size: int) -> int:
+    if value < 0 or value >= max(1, size):
+        raise ValueError(f"{label} index {value} is out of range")
+    return value
+
+
+def load_nd2_frame(path: str, request: dict[str, int]) -> tuple[int, int, np.ndarray]:
+    import nd2
+
+    with nd2.ND2File(path) as handle:
+        sizes = {str(key): int(value) for key, value in handle.sizes.items()}
+        width = nd2_dimension_size(sizes, "X")
+        height = nd2_dimension_size(sizes, "Y")
+        frame = read_nd2_frame_2d(
+            handle,
+            validate_nd2_index("Position", int(request["pos"]), nd2_dimension_size(sizes, "P")),
+            validate_nd2_index("Time", int(request["time"]), nd2_dimension_size(sizes, "T")),
+            validate_nd2_index("Channel", int(request["channel"]), nd2_dimension_size(sizes, "C")),
+            validate_nd2_index("Z", int(request["z"]), nd2_dimension_size(sizes, "Z")),
+        )
+
+    grayscale = np.asarray(frame)
+    if grayscale.ndim != 2:
+        raise ValueError("Unsupported ND2 frame layout")
+    grayscale = np.clip(grayscale, 0, np.iinfo(np.uint16).max).astype(np.uint16, copy=False)
+    return width, height, grayscale
+
+
+def load_frame_for_source(source: dict[str, str], request: dict[str, int]) -> tuple[int, int, np.ndarray]:
+    normalized = normalize_source(source)
+    if normalized["kind"] == "workspace":
+        return load_frame(normalized["path"], request)
+    return load_nd2_frame(normalized["path"], request)
+
+
 def sampled_values(values: np.ndarray) -> np.ndarray:
     flat = values.reshape(-1)
     if flat.size == 0:
@@ -292,6 +378,28 @@ def save_bbox(root: str, pos: int, csv: str) -> dict[str, Any]:
     payload = csv if csv.endswith("\n") else f"{csv}\n"
     try:
         (root_path / f"Pos{pos}_bbox.csv").write_text(payload, encoding="utf-8")
+        return {"ok": True}
+    except OSError as error:
+        return {"ok": False, "error": str(error)}
+
+
+def bbox_output_path(source: dict[str, str], pos: int) -> Path:
+    normalized = normalize_source(source)
+    if normalized["kind"] == "workspace":
+        return Path(normalized["path"]) / f"Pos{pos}_bbox.csv"
+
+    source_path = Path(normalized["path"])
+    stem = source_path.stem or "source"
+    parent = source_path.parent if source_path.parent != Path("") else Path(".")
+    return parent / f"{stem}_Pos{pos}_bbox.csv"
+
+
+def save_bbox_for_source(source: dict[str, str], pos: int, csv: str) -> dict[str, Any]:
+    path = bbox_output_path(source, pos)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = csv if csv.endswith("\n") else f"{csv}\n"
+    try:
+        path.write_text(payload, encoding="utf-8")
         return {"ok": True}
     except OSError as error:
         return {"ok": False, "error": str(error)}
@@ -379,16 +487,16 @@ def count_visible_cells(frame_width: int, frame_height: int, grid: dict[str, Any
 
 
 class LocalBackend:
-    def scan_workspace(self, root: str) -> dict[str, Any]:
-        return scan_workspace(root)
+    def scan_source(self, source: dict[str, str]) -> dict[str, Any]:
+        return scan_source(source)
 
     def load_frame(
         self,
-        root: str,
+        source: dict[str, str],
         request: dict[str, int],
         contrast: dict[str, int] | None = None,
     ) -> dict[str, Any]:
-        width, height, frame = load_frame(root, request)
+        width, height, frame = load_frame_for_source(source, request)
         suggested = auto_contrast(frame)
         applied = normalize_contrast(contrast or suggested)
         display = apply_contrast(frame, applied)
@@ -402,8 +510,8 @@ class LocalBackend:
             "appliedContrast": applied,
         }
 
-    def save_bbox(self, root: str, pos: int, csv: str) -> dict[str, Any]:
-        return save_bbox(root, pos, csv)
+    def save_bbox(self, source: dict[str, str], pos: int, csv: str) -> dict[str, Any]:
+        return save_bbox_for_source(source, pos, csv)
 
 
 def ok_response(message_id: str, message_type: str, payload: Any) -> str:
@@ -512,19 +620,20 @@ class WebSocketBackendServer:
 
         loop = asyncio.get_running_loop()
         try:
-            if message_type == "scan_workspace":
-                if not isinstance(payload, dict) or not isinstance(payload.get("root"), str):
-                    raise ValueError("Invalid scan_workspace payload")
-                result = await loop.run_in_executor(self._executor, self._backend.scan_workspace, payload["root"])
-                return ok_response(message_id, "scan_workspace_result", result)
+            if message_type == "scan_source":
+                if not isinstance(payload, dict):
+                    raise ValueError("Invalid scan_source payload")
+                source = normalize_source(payload.get("source"))
+                result = await loop.run_in_executor(self._executor, self._backend.scan_source, source)
+                return ok_response(message_id, "scan_source_result", result)
 
             if message_type == "load_frame":
                 if not isinstance(payload, dict):
                     raise ValueError("Invalid load_frame payload")
-                root = payload.get("root")
+                source = normalize_source(payload.get("source"))
                 request = payload.get("request")
                 contrast = payload.get("contrast")
-                if not isinstance(root, str) or not isinstance(request, dict):
+                if not isinstance(request, dict):
                     raise ValueError("Invalid load_frame payload")
                 normalized_request = {
                     "pos": int(request["pos"]),
@@ -538,7 +647,7 @@ class WebSocketBackendServer:
                 result = await loop.run_in_executor(
                     self._executor,
                     self._backend.load_frame,
-                    root,
+                    source,
                     normalized_request,
                     normalized_contrast,
                 )
@@ -547,12 +656,12 @@ class WebSocketBackendServer:
             if message_type == "save_bbox":
                 if not isinstance(payload, dict):
                     raise ValueError("Invalid save_bbox payload")
-                root = payload.get("root")
+                source = normalize_source(payload.get("source"))
                 pos = payload.get("pos")
                 csv = payload.get("csv")
-                if not isinstance(root, str) or not isinstance(pos, int) or not isinstance(csv, str):
+                if not isinstance(pos, int) or not isinstance(csv, str):
                     raise ValueError("Invalid save_bbox payload")
-                result = await loop.run_in_executor(self._executor, self._backend.save_bbox, root, pos, csv)
+                result = await loop.run_in_executor(self._executor, self._backend.save_bbox, source, pos, csv)
                 return ok_response(message_id, "save_bbox_result", result)
 
             return error_response(message_id, "Unsupported request type")
@@ -575,7 +684,7 @@ class ViewerMainWindow(QMainWindow):
         super().__init__()
         self._backend = LocalBackend()
         self._backend_url = backend_url
-        self._root = ""
+        self._source: dict[str, str] | None = None
         self._scan: dict[str, list[int]] | None = None
         self._selection: dict[str, int] | None = None
         self._grid = create_default_grid()
@@ -608,15 +717,18 @@ class ViewerMainWindow(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
 
-        self.open_button = QPushButton("Open Workspace")
-        self.open_button.clicked.connect(self.open_workspace)
+        self.open_workspace_button = QPushButton("Open Workspace")
+        self.open_workspace_button.clicked.connect(self.open_workspace)
+        self.open_nd2_button = QPushButton("Open ND2")
+        self.open_nd2_button.clicked.connect(self.open_nd2)
         self.clear_button = QPushButton("Clear")
-        self.clear_button.clicked.connect(self.clear_workspace)
-        self.root_label = QLabel("No workspace selected")
+        self.clear_button.clicked.connect(self.clear_source)
+        self.root_label = QLabel("No source selected")
         self.root_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.root_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
 
-        header_layout.addWidget(self.open_button)
+        header_layout.addWidget(self.open_workspace_button)
+        header_layout.addWidget(self.open_nd2_button)
         header_layout.addWidget(self.clear_button)
         header_layout.addWidget(self.root_label, 1)
         root_layout.addLayout(header_layout)
@@ -807,10 +919,10 @@ class ViewerMainWindow(QMainWindow):
         return int(self._frame_payload["width"]), int(self._frame_payload["height"])
 
     def _empty_text(self) -> str:
-        if not self._root:
-            return "Open a workspace to load frames"
+        if not self._source:
+            return "Open a workspace or ND2 file to load frames"
         if self._scan is not None and not self._selection:
-            return "No frames found in workspace"
+            return "No frames found in ND2 file" if self._source["kind"] == "nd2" else "No frames found in workspace"
         return "No frame loaded"
 
     def _canvas_messages(self) -> list[dict[str, str]]:
@@ -827,7 +939,7 @@ class ViewerMainWindow(QMainWindow):
             return
         payload = {
             "backendUrl": self._backend_url,
-            "root": self._root or None,
+            "source": dict(self._source) if self._source else None,
             "request": dict(self._selection) if self._selection else None,
             "contrast": {
                 "mode": self._contrast_mode,
@@ -844,8 +956,8 @@ class ViewerMainWindow(QMainWindow):
         self.view.page().runJavaScript(f"window.__viewPyApplyState?.({json.dumps(payload)});")
 
     def _sync_root_label(self) -> None:
-        self.root_label.setText(self._root or "No workspace selected")
-        self.clear_button.setEnabled(bool(self._root))
+        self.root_label.setText(self._source["path"] if self._source else "No source selected")
+        self.clear_button.setEnabled(self._source is not None)
 
     def _set_combo_items(self, combo: QComboBox, values: list[int], current: int | None) -> None:
         blocker = QSignalBlocker(combo)
@@ -964,8 +1076,8 @@ class ViewerMainWindow(QMainWindow):
     def _clear_save_message(self) -> None:
         self._save_message = None
 
-    def _set_workspace_state(self, root: str) -> None:
-        self._root = root
+    def _set_source_state(self, source: dict[str, str] | None) -> None:
+        self._source = dict(source) if source else None
         self._scan = None
         self._selection = None
         self._frame_payload = None
@@ -983,12 +1095,13 @@ class ViewerMainWindow(QMainWindow):
         if not selected:
             return
 
-        self._set_workspace_state(selected)
+        source = {"kind": "workspace", "path": selected}
+        self._set_source_state(source)
         self._loading = True
         self._sync_ui()
         self._publish_canvas_state()
         try:
-            scan = self._with_wait_cursor(self._backend.scan_workspace, selected)
+            scan = self._with_wait_cursor(self._backend.scan_source, source)
             self._scan = {
                 "positions": [int(value) for value in scan.get("positions", [])],
                 "channels": [int(value) for value in scan.get("channels", [])],
@@ -1010,14 +1123,47 @@ class ViewerMainWindow(QMainWindow):
         if self._selection:
             self.load_current_frame()
 
-    def clear_workspace(self, *_args: Any) -> None:
-        self._set_workspace_state("")
+    def open_nd2(self, *_args: Any) -> None:
+        selected, _ = QFileDialog.getOpenFileName(self, "Open ND2", "", "ND2 Files (*.nd2)")
+        if not selected:
+            return
+
+        source = {"kind": "nd2", "path": selected}
+        self._set_source_state(source)
+        self._loading = True
+        self._sync_ui()
+        self._publish_canvas_state()
+        try:
+            scan = self._with_wait_cursor(self._backend.scan_source, source)
+            self._scan = {
+                "positions": [int(value) for value in scan.get("positions", [])],
+                "channels": [int(value) for value in scan.get("channels", [])],
+                "times": [int(value) for value in scan.get("times", [])],
+                "zSlices": [int(value) for value in scan.get("zSlices", [])],
+            }
+            self._selection = create_selection(self._scan)
+            self._set_error(None)
+        except Exception as error:  # noqa: BLE001
+            self._scan = None
+            self._selection = None
+            self._frame_payload = None
+            self._set_error(str(error))
+        finally:
+            self._loading = False
+
+        self._sync_ui()
+        self._publish_canvas_state()
+        if self._selection:
+            self.load_current_frame()
+
+    def clear_source(self, *_args: Any) -> None:
+        self._set_source_state(None)
         self._loading = False
         self._sync_ui()
         self._publish_canvas_state()
 
     def load_current_frame(self) -> None:
-        if not self._root or not self._selection:
+        if not self._source or not self._selection:
             self._frame_payload = None
             self._sync_ui()
             self._publish_canvas_state()
@@ -1031,14 +1177,19 @@ class ViewerMainWindow(QMainWindow):
 
     def save_current_bbox(self, *_args: Any) -> None:
         frame_size = self._frame_size()
-        if not self._root or not self._selection or not frame_size:
+        if not self._source or not self._selection or not frame_size:
             return
 
         csv = build_bbox_csv(frame_size[0], frame_size[1], self._grid, self._active_excluded_cell_ids())
         try:
-            response = self._with_wait_cursor(self._backend.save_bbox, self._root, int(self._selection["pos"]), csv)
+            response = self._with_wait_cursor(
+                self._backend.save_bbox,
+                self._source,
+                int(self._selection["pos"]),
+                csv,
+            )
             if response.get("ok"):
-                self._save_message = ("success", f"Saved Pos{self._selection['pos']}_bbox.csv")
+                self._save_message = ("success", f"Saved bbox CSV for Pos{self._selection['pos']}")
                 self._set_error(None)
             else:
                 self._save_message = ("error", str(response.get("error", "Failed to save bbox CSV")))
