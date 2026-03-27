@@ -79,12 +79,16 @@ def create_default_grid() -> dict[str, Any]:
         "tx": 0.0,
         "ty": 0.0,
         "rotation": 0.0,
-        "spacingA": 96.0,
-        "spacingB": 96.0,
-        "cellWidth": 72.0,
-        "cellHeight": 72.0,
+        "spacingA": 325.0,
+        "spacingB": 325.0,
+        "cellWidth": 200.0,
+        "cellHeight": 200.0,
         "opacity": 0.35,
     }
+
+
+def minimum_grid_spacing(cell_width: float, cell_height: float) -> float:
+    return max(1.0, min(cell_width, cell_height))
 
 
 def normalize_grid_state(input_grid: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -93,16 +97,19 @@ def normalize_grid_state(input_grid: dict[str, Any] | None = None) -> dict[str, 
         return base
 
     shape = str(input_grid.get("shape", base["shape"]))
+    cell_width = max(1.0, float(input_grid.get("cellWidth", base["cellWidth"])))
+    cell_height = max(1.0, float(input_grid.get("cellHeight", base["cellHeight"])))
+    min_spacing = minimum_grid_spacing(cell_width, cell_height)
     return {
         "enabled": bool(input_grid.get("enabled", base["enabled"])),
         "shape": shape if shape in {"square", "hex"} else base["shape"],
         "tx": float(input_grid.get("tx", base["tx"])),
         "ty": float(input_grid.get("ty", base["ty"])),
         "rotation": float(input_grid.get("rotation", base["rotation"])),
-        "spacingA": max(1.0, float(input_grid.get("spacingA", base["spacingA"]))),
-        "spacingB": max(1.0, float(input_grid.get("spacingB", base["spacingB"]))),
-        "cellWidth": max(1.0, float(input_grid.get("cellWidth", base["cellWidth"]))),
-        "cellHeight": max(1.0, float(input_grid.get("cellHeight", base["cellHeight"]))),
+        "spacingA": max(min_spacing, float(input_grid.get("spacingA", base["spacingA"]))),
+        "spacingB": max(min_spacing, float(input_grid.get("spacingB", base["spacingB"]))),
+        "cellWidth": cell_width,
+        "cellHeight": cell_height,
         "opacity": clamp(float(input_grid.get("opacity", base["opacity"])), 0.0, 1.0),
     }
 
@@ -396,17 +403,20 @@ def grid_basis(shape: str, rotation: float, spacing_a: float, spacing_b: float) 
     )
 
 
-def estimate_grid_draw(width: int, height: int, spacing_a: float, spacing_b: float, max_rects: int = MAX_GRID_RECTS) -> tuple[int, int]:
+def estimate_grid_draw(width: int, height: int, spacing_a: float, spacing_b: float, _max_rects: int = MAX_GRID_RECTS) -> tuple[int, int]:
     min_spacing = max(1.0, min(spacing_a, spacing_b))
-    max_dim = max(width, height) * 2
-    value_range = math.ceil(max_dim / min_spacing) + 2
-    estimated = (value_range * 2 + 1) ** 2
-    stride = math.ceil(math.sqrt(estimated / max_rects)) if estimated > max_rects else 1
+    estimated_columns = math.ceil(width / min_spacing) + 3
+    estimated_rows = math.ceil(height / min_spacing) + 3
+    value_range = max(estimated_columns, estimated_rows)
+    stride = 1
     return value_range, stride
 
 
-def enumerate_visible_grid_cells(frame_width: int, frame_height: int, grid: dict[str, Any]) -> list[GridCellRect]:
-    value_range, stride = estimate_grid_draw(frame_width, frame_height, grid["spacingA"], grid["spacingB"])
+def resolve_visible_grid_index_bounds(
+    frame_width: int,
+    frame_height: int,
+    grid: dict[str, Any],
+) -> tuple[tuple[float, float], tuple[float, float], float, float, float, float, int, int, int, int]:
     (ax, ay), (bx, by) = grid_basis(
         grid["shape"],
         grid["rotation"],
@@ -417,10 +427,60 @@ def enumerate_visible_grid_cells(frame_width: int, frame_height: int, grid: dict
     origin_y = frame_height / 2 + grid["ty"]
     half_width = grid["cellWidth"] / 2
     half_height = grid["cellHeight"] / 2
+    determinant = ax * by - ay * bx
+
+    if abs(determinant) <= 1e-6:
+        value_range, _stride = estimate_grid_draw(frame_width, frame_height, grid["spacingA"], grid["spacingB"])
+        return (
+            (ax, ay),
+            (bx, by),
+            origin_x,
+            origin_y,
+            half_width,
+            half_height,
+            -value_range,
+            value_range,
+            -value_range,
+            value_range,
+        )
+
+    corners = (
+        (-half_width, -half_height),
+        (frame_width + half_width, -half_height),
+        (-half_width, frame_height + half_height),
+        (frame_width + half_width, frame_height + half_height),
+    )
+    i_values: list[float] = []
+    j_values: list[float] = []
+
+    for corner_x, corner_y in corners:
+        dx = corner_x - origin_x
+        dy = corner_y - origin_y
+        i_values.append((dx * by - dy * bx) / determinant)
+        j_values.append((dy * ax - dx * ay) / determinant)
+
+    return (
+        (ax, ay),
+        (bx, by),
+        origin_x,
+        origin_y,
+        half_width,
+        half_height,
+        math.floor(min(i_values) - 1e-6),
+        math.ceil(max(i_values) + 1e-6),
+        math.floor(min(j_values) - 1e-6),
+        math.ceil(max(j_values) + 1e-6),
+    )
+
+
+def enumerate_visible_grid_cells(frame_width: int, frame_height: int, grid: dict[str, Any]) -> list[GridCellRect]:
+    (ax, ay), (bx, by), origin_x, origin_y, half_width, half_height, i_min, i_max, j_min, j_max = (
+        resolve_visible_grid_index_bounds(frame_width, frame_height, grid)
+    )
     cells: list[GridCellRect] = []
 
-    for i in range(-value_range, value_range + 1, stride):
-        for j in range(-value_range, value_range + 1, stride):
+    for i in range(i_min, i_max + 1):
+        for j in range(j_min, j_max + 1):
             center_x = origin_x + i * ax + j * bx
             center_y = origin_y + i * ay + j * by
             cell = GridCellRect(
@@ -681,10 +741,11 @@ class ViewerMainWindow(QMainWindow):
         self._selection: dict[str, int] | None = None
         self._grid = create_default_grid()
         self._frame_payload: dict[str, Any] | None = None
-        self._contrast_mode = "auto"
+        self._contrast_mode = "manual"
         self._contrast_domain = {"min": 0, "max": 65535}
         self._contrast_min = 0
-        self._contrast_max = 255
+        self._contrast_max = 65535
+        self._auto_contrast_request_token = 0
         self._selection_mode = False
         self._excluded_cell_ids_by_position: dict[int, set[str]] = {}
         self._error_message: str | None = None
@@ -945,6 +1006,7 @@ class ViewerMainWindow(QMainWindow):
                 if self._contrast_mode == "manual"
                 else None,
             },
+            "autoContrastRequestToken": int(self._auto_contrast_request_token),
             "grid": self._grid,
             "excludedCellIds": sorted(self._active_excluded_cell_ids()),
             "selectionMode": self._selection_mode,
@@ -1002,9 +1064,12 @@ class ViewerMainWindow(QMainWindow):
             QSignalBlocker(self.grid_ty_spin),
             QSignalBlocker(self.grid_opacity_spin),
         ]
+        min_spacing = minimum_grid_spacing(float(self._grid["cellWidth"]), float(self._grid["cellHeight"]))
         self.grid_enabled_checkbox.setChecked(bool(self._grid["enabled"]))
         self.grid_shape_combo.setCurrentIndex(0 if self._grid["shape"] == "square" else 1)
         self.grid_rotation_spin.setValue(math.degrees(float(self._grid["rotation"])))
+        self.grid_spacing_a_spin.setMinimum(min_spacing)
+        self.grid_spacing_b_spin.setMinimum(min_spacing)
         self.grid_spacing_a_spin.setValue(float(self._grid["spacingA"]))
         self.grid_spacing_b_spin.setValue(float(self._grid["spacingB"]))
         self.grid_cell_width_spin.setValue(float(self._grid["cellWidth"]))
@@ -1084,10 +1149,11 @@ class ViewerMainWindow(QMainWindow):
         self._scan = None
         self._selection = None
         self._frame_payload = None
-        self._contrast_mode = "auto"
+        self._contrast_mode = "manual"
         self._contrast_domain = {"min": 0, "max": 65535}
         self._contrast_min = 0
-        self._contrast_max = 255
+        self._contrast_max = 65535
+        self._auto_contrast_request_token = 0
         self._selection_mode = False
         self._excluded_cell_ids_by_position = {}
         self._set_error(None)
@@ -1270,6 +1336,7 @@ class ViewerMainWindow(QMainWindow):
         if not self._selection:
             return
         self._contrast_mode = "auto"
+        self._auto_contrast_request_token += 1
         self.load_current_frame()
 
     def _on_contrast_changed(self, *_args: Any) -> None:
@@ -1426,6 +1493,8 @@ class ViewerMainWindow(QMainWindow):
                     self._contrast_domain["max"],
                 )
             )
+        if self._contrast_mode == "auto":
+            self._contrast_mode = "manual"
         self._set_error(None)
         self._sync_ui()
         self._publish_canvas_state()

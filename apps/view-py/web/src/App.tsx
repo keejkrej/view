@@ -1,7 +1,9 @@
 import {
   ViewerCanvasSurface,
+  clamp,
   createDefaultGrid,
   createWebSocketBackend,
+  getFrameContrastDomain,
   makeFrameKey,
   normalizeGridState,
   toggleCellIds,
@@ -32,6 +34,7 @@ interface SurfaceState {
   request: FrameRequest | null;
   contrastMode: ContrastMode;
   contrast: ContrastWindow | null;
+  autoContrastRequestToken: number;
   grid: GridState;
   excludedCellIds: string[];
   selectionMode: boolean;
@@ -121,6 +124,8 @@ function normalizeHostState(next: HostCanvasState): SurfaceState {
       typeof contrast.value.max === "number"
         ? { min: contrast.value.min, max: contrast.value.max }
         : null,
+    autoContrastRequestToken:
+      typeof next.autoContrastRequestToken === "number" ? next.autoContrastRequestToken : 0,
     grid: normalizeGridState(next.grid ?? createDefaultGrid()),
     excludedCellIds: Array.isArray(next.excludedCellIds)
       ? next.excludedCellIds.filter((cellId): cellId is string => typeof cellId === "string")
@@ -137,8 +142,19 @@ function loadKeyForState(state: SurfaceState): string | null {
   const contrastKey =
     state.contrastMode === "manual" && state.contrast
       ? `${state.contrast.min}:${state.contrast.max}`
-      : "auto";
+      : `auto:${state.autoContrastRequestToken}`;
   return `${makeFrameKey(state.source, state.request)}:${contrastKey}`;
+}
+
+function contrastWindowForFrame(frame: FrameResult): ContrastWindow {
+  return frame.contrastDomain ?? getFrameContrastDomain(frame);
+}
+
+function normalizeContrastWindow(window: ContrastWindow, domain: ContrastWindow): ContrastWindow {
+  return {
+    min: clamp(Math.round(window.min), domain.min, Math.max(domain.min, domain.max - 1)),
+    max: clamp(Math.round(window.max), Math.min(domain.min + 1, domain.max), domain.max),
+  };
 }
 
 function notifyFrameLoaded(frame: FrameResult) {
@@ -157,7 +173,7 @@ export default function App() {
     normalizeHostState({
       source: null,
       request: null,
-      contrast: { mode: "auto", value: null },
+      contrast: { mode: "manual", value: { min: 0, max: 65535 } },
       grid: createDefaultGrid(),
       excludedCellIds: [],
       selectionMode: false,
@@ -176,11 +192,39 @@ export default function App() {
     return createWebSocketBackend({ url: surfaceState.backendUrl });
   }, [surfaceState.backendUrl]);
 
-  const requestKey = useMemo(() => loadKeyForState(surfaceState), [surfaceState]);
-  const requestSource = surfaceState.source;
-  const requestSelection = surfaceState.request;
-  const requestContrast =
-    surfaceState.contrastMode === "manual" && surfaceState.contrast ? surfaceState.contrast : undefined;
+  const requestSource = useMemo(
+    () => surfaceState.source,
+    [surfaceState.source?.kind, surfaceState.source?.path],
+  );
+  const requestSelection = useMemo(
+    () => surfaceState.request,
+    [
+      surfaceState.request?.pos,
+      surfaceState.request?.channel,
+      surfaceState.request?.time,
+      surfaceState.request?.z,
+    ],
+  );
+  const requestContrast = useMemo(
+    () =>
+      surfaceState.contrastMode === "manual" && surfaceState.contrast ? surfaceState.contrast : undefined,
+    [surfaceState.contrastMode, surfaceState.contrast?.min, surfaceState.contrast?.max],
+  );
+  const requestKey = useMemo(
+    () => loadKeyForState(surfaceState),
+    [
+      surfaceState.source?.kind,
+      surfaceState.source?.path,
+      surfaceState.request?.pos,
+      surfaceState.request?.channel,
+      surfaceState.request?.time,
+      surfaceState.request?.z,
+      surfaceState.contrastMode,
+      surfaceState.contrast?.min,
+      surfaceState.contrast?.max,
+      surfaceState.autoContrastRequestToken,
+    ],
+  );
 
   useEffect(() => {
     if (!backend || !requestSource || !requestSelection || !requestKey) {
@@ -213,6 +257,15 @@ export default function App() {
         );
         if (cancelled) return;
         frameCacheRef.current.set(requestKey, { frame: loaded });
+        if (!requestContrast) {
+          const domain = contrastWindowForFrame(loaded);
+          const applied = loaded.appliedContrast ?? loaded.suggestedContrast ?? domain;
+          const nextContrast = normalizeContrastWindow(applied, domain);
+          frameCacheRef.current.set(
+            `${makeFrameKey(requestSource, requestSelection)}:${nextContrast.min}:${nextContrast.max}`,
+            { frame: loaded },
+          );
+        }
         setFrame(loaded);
         notifyFrameLoaded(loaded);
       } catch (error) {

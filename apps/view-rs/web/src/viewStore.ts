@@ -30,6 +30,8 @@ export type SaveState =
   | { type: "error"; message: string };
 
 export type ContrastMode = "auto" | "manual";
+const DEFAULT_CONTRAST_MIN = 0;
+const DEFAULT_CONTRAST_MAX = 65535;
 
 interface StorageLike {
   getItem(key: string): string | null;
@@ -261,9 +263,9 @@ function resetViewerState(
     frame: null,
     loading: false,
     error: null,
-    contrastMin: 0,
-    contrastMax: 255,
-    contrastMode: "auto",
+    contrastMin: DEFAULT_CONTRAST_MIN,
+    contrastMax: DEFAULT_CONTRAST_MAX,
+    contrastMode: "manual",
     contrastReloadToken: 0,
     timeSliderIndex: 0,
     selectionMode: false,
@@ -291,9 +293,9 @@ function createInitialState(): ViewStoreState {
         frame: null,
         loading: false,
         error: null,
-        contrastMin: 0,
-        contrastMax: 255,
-        contrastMode: "auto",
+        contrastMin: DEFAULT_CONTRAST_MIN,
+        contrastMax: DEFAULT_CONTRAST_MAX,
+        contrastMode: "manual",
         contrastReloadToken: 0,
         timeSliderIndex: 0,
         selectionMode: false,

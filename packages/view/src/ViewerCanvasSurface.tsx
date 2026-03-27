@@ -16,12 +16,13 @@ import type {
 import {
   applyGridWheelGesture,
   clamp,
+  collectStrokeToggleCellIds,
   degreesToRadians,
   enumerateVisibleGridCells,
-  findGridCellAtPoint,
   gridBasis,
   normalizeGridState,
   normalizeRadians,
+  toggleCellIds,
 } from "./utils";
 
 interface PreparedFrame {
@@ -158,7 +159,8 @@ export default function ViewerCanvasSurface({
     | null
     | {
         pointerId: number;
-        lastPoint: { x: number; y: number };
+        hitCellIds: Set<string>;
+        lastPoint: { x: number; y: number } | null;
       }
   >(null);
   const dragRef = useRef<
@@ -196,6 +198,11 @@ export default function ViewerCanvasSurface({
       const cssWidth = view.clientWidth;
       const cssHeight = view.clientHeight;
       const activeGrid = previewGridRef.current ?? latestGridRef.current;
+      const strokePreviewCellIds = selectStrokeRef.current?.hitCellIds;
+      const renderedExcludedCellIds =
+        strokePreviewCellIds && strokePreviewCellIds.size > 0
+          ? new Set(toggleCellIds(activeExcludedCellIds, strokePreviewCellIds))
+          : activeExcludedCellIds;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.scale(dprRef.current, dprRef.current);
@@ -214,7 +221,7 @@ export default function ViewerCanvasSurface({
         ctx.strokeRect(drawX - 8.5, drawY - 8.5, drawWidth + 17, drawHeight + 17);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(cached.prepared, drawX, drawY, drawWidth, drawHeight);
-        drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid, activeExcludedCellIds);
+        drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid, renderedExcludedCellIds);
       } else {
         ctx.fillStyle = "rgba(255,255,255,0.55)";
         ctx.font = "500 14px 'DM Sans', 'Segoe UI Variable', sans-serif";
@@ -297,6 +304,43 @@ export default function ViewerCanvasSurface({
     };
   }, [queueRender]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleNativeWheel = (event: WheelEvent) => {
+      if (!frame || !grid.enabled || selectionMode || !onGridChange) return;
+
+      event.preventDefault();
+      const view = viewportRef.current;
+      const displayWidth = view?.clientWidth ?? frame.width;
+      const displayHeight = view?.clientHeight ?? frame.height;
+      const nextGrid = applyGridWheelGesture(
+        latestGridRef.current,
+        {
+          deltaMode: event.deltaMode,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+        },
+        {
+          displayWidth,
+          displayHeight,
+          modelWidth: frame.width,
+          modelHeight: frame.height,
+        },
+      );
+      previewGridRef.current = null;
+      onGridChange(nextGrid);
+    };
+
+    canvas.addEventListener("wheel", handleNativeWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", handleNativeWheel);
+    };
+  }, [frame, grid.enabled, onGridChange, selectionMode]);
+
   const getFramePoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const cached = latestFrameRef.current;
     const view = viewportRef.current;
@@ -326,35 +370,61 @@ export default function ViewerCanvasSurface({
     };
   }, []);
 
-  const excludeCellsAlongStroke = useCallback(
+  const collectCellsAlongStroke = useCallback(
     (
+      stroke: {
+        pointerId: number;
+        hitCellIds: Set<string>;
+        lastPoint: { x: number; y: number } | null;
+      },
+      point: { x: number; y: number },
       startPoint: { x: number; y: number },
-      endPoint: { x: number; y: number },
       activeFrame: FrameResult,
       activeGrid: GridState,
     ) => {
-      if (!onToggleCells) return;
+      const fromPoint = stroke.lastPoint ?? startPoint;
+      const nextCellIds = collectStrokeToggleCellIds(
+        activeFrame,
+        activeGrid,
+        fromPoint,
+        point,
+        stroke.hitCellIds,
+      );
+      for (const cellId of nextCellIds) {
+        stroke.hitCellIds.add(cellId);
+      }
+      stroke.lastPoint = point;
+    },
+    [],
+  );
 
-      const sampleDistance = Math.max(4, Math.min(activeGrid.cellWidth, activeGrid.cellHeight) / 4);
-      const distance = Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y);
-      const steps = Math.max(1, Math.ceil(distance / sampleDistance));
-      const hitCellIds = new Set<string>();
+  const pauseStrokeCollection = useCallback((stroke: {
+    pointerId: number;
+    hitCellIds: Set<string>;
+    lastPoint: { x: number; y: number } | null;
+  }) => {
+    stroke.lastPoint = null;
+  }, []);
 
-      for (let step = 0; step <= steps; step += 1) {
-        const t = step / steps;
-        const x = startPoint.x + (endPoint.x - startPoint.x) * t;
-        const y = startPoint.y + (endPoint.y - startPoint.y) * t;
-        const cell = findGridCellAtPoint(activeFrame, activeGrid, x, y);
-        if (cell) {
-          hitCellIds.add(cell.id);
-        }
+  const finishStrokeSelection = useCallback(
+    (
+      stroke: {
+        pointerId: number;
+        hitCellIds: Set<string>;
+        lastPoint: { x: number; y: number } | null;
+      },
+      activeFrame: FrameResult | null,
+      point: { x: number; y: number } | null,
+    ) => {
+      if (activeFrame && point) {
+        collectCellsAlongStroke(stroke, point, point, activeFrame, latestGridRef.current);
       }
 
-      if (hitCellIds.size > 0) {
-        onToggleCells(Array.from(hitCellIds));
+      if (stroke.hitCellIds.size > 0) {
+        onToggleCells?.(Array.from(stroke.hitCellIds));
       }
     },
-    [onToggleCells],
+    [collectCellsAlongStroke, onToggleCells],
   );
 
   const beginDrag = useCallback(
@@ -444,33 +514,10 @@ export default function ViewerCanvasSurface({
   );
 
   const handleWheel = useCallback(
-    (event: React.WheelEvent<HTMLCanvasElement>) => {
-      if (!frame || !grid.enabled || selectionMode || !onGridChange) return;
-
-      event.preventDefault();
-      const view = viewportRef.current;
-      const displayWidth = view?.clientWidth ?? frame.width;
-      const displayHeight = view?.clientHeight ?? frame.height;
-      const nextGrid = applyGridWheelGesture(
-        latestGridRef.current,
-        {
-          deltaMode: event.deltaMode,
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-        },
-        {
-          displayWidth,
-          displayHeight,
-          modelWidth: frame.width,
-          modelHeight: frame.height,
-        },
-      );
-      previewGridRef.current = null;
-      onGridChange(nextGrid);
+    (_event: React.WheelEvent<HTMLCanvasElement>) => {
+      // Native non-passive wheel listener handles contrast/grid gestures.
     },
-    [frame, grid.enabled, onGridChange, selectionMode],
+    [],
   );
 
   const handleCanvasPointerDown = useCallback(
@@ -478,28 +525,28 @@ export default function ViewerCanvasSurface({
       if (selectionMode && event.button === 0 && frame && onToggleCells) {
         const point = getFramePoint(event);
         if (!point) {
-          event.preventDefault();
           return;
         }
 
-        selectStrokeRef.current = {
+        const stroke = {
           pointerId: event.pointerId,
-          lastPoint: point,
+          hitCellIds: new Set<string>(),
+          lastPoint: null,
         };
+        collectCellsAlongStroke(stroke, point, point, frame, latestGridRef.current);
+        selectStrokeRef.current = stroke;
         event.currentTarget.setPointerCapture(event.pointerId);
-        excludeCellsAlongStroke(point, point, frame, latestGridRef.current);
-        event.preventDefault();
+        queueRender();
         return;
       }
 
       if (selectionMode) {
-        event.preventDefault();
         return;
       }
 
       beginDrag(event);
     },
-    [beginDrag, excludeCellsAlongStroke, frame, getFramePoint, onToggleCells, selectionMode],
+    [beginDrag, collectCellsAlongStroke, frame, getFramePoint, onToggleCells, selectionMode],
   );
 
   const handleCanvasPointerMove = useCallback(
@@ -507,28 +554,23 @@ export default function ViewerCanvasSurface({
       if (selectionMode) {
         const stroke = selectStrokeRef.current;
         if (!stroke || stroke.pointerId !== event.pointerId || !frame) {
-          event.preventDefault();
           return;
         }
 
         const point = getFramePoint(event);
         if (!point) {
-          event.preventDefault();
+          pauseStrokeCollection(stroke);
           return;
         }
 
-        excludeCellsAlongStroke(stroke.lastPoint, point, frame, latestGridRef.current);
-        selectStrokeRef.current = {
-          pointerId: stroke.pointerId,
-          lastPoint: point,
-        };
-        event.preventDefault();
+        collectCellsAlongStroke(stroke, point, point, frame, latestGridRef.current);
+        queueRender();
         return;
       }
 
       moveDrag(event);
     },
-    [excludeCellsAlongStroke, frame, getFramePoint, moveDrag, selectionMode],
+    [collectCellsAlongStroke, frame, getFramePoint, moveDrag, pauseStrokeCollection, selectionMode],
   );
 
   const handleCanvasPointerEnd = useCallback(
@@ -536,18 +578,18 @@ export default function ViewerCanvasSurface({
       if (selectionMode) {
         const stroke = selectStrokeRef.current;
         if (stroke?.pointerId === event.pointerId) {
+          finishStrokeSelection(stroke, frame, getFramePoint(event));
           selectStrokeRef.current = null;
         }
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
-        event.preventDefault();
         return;
       }
 
       endDrag(event);
     },
-    [endDrag, selectionMode],
+    [endDrag, finishStrokeSelection, frame, getFramePoint, selectionMode],
   );
 
   return (
@@ -571,6 +613,8 @@ export default function ViewerCanvasSurface({
           height: "100%",
           width: "100%",
           cursor: selectionMode ? "crosshair" : grid.enabled ? "grab" : "default",
+          touchAction: "none",
+          userSelect: "none",
         }}
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handleCanvasPointerMove}

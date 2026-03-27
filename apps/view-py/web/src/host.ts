@@ -35,6 +35,7 @@ export interface HostCanvasState {
   source?: ViewerSource | null;
   request?: FrameRequest | null;
   contrast?: HostContrastState;
+  autoContrastRequestToken?: number;
   grid?: Partial<GridState>;
   excludedCellIds?: string[];
   selectionMode?: boolean;

@@ -1,7 +1,7 @@
 import { Effect, Exit } from "effect";
 import { FolderOpen, X } from "lucide-react";
 import type { ChangeEvent } from "react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
@@ -152,17 +152,20 @@ function NumberInput({
   onChange,
   disabled,
   step = "1",
+  min,
 }: {
   value: number;
   onChange: (value: number) => void;
   disabled?: boolean;
   step?: string;
+  min?: number | string;
 }) {
   return (
     <Input
       type="number"
       size="sm"
       step={step}
+      min={min}
       value={Number.isFinite(value) ? String(value) : ""}
       disabled={disabled}
       onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(Number(event.target.value))}
@@ -239,6 +242,13 @@ function contrastWindowForFrame(frame: FrameResult | null): ContrastWindow {
   return frame.contrastDomain ?? getFrameContrastDomain(frame);
 }
 
+function normalizeContrastWindow(window: ContrastWindow, domain: ContrastWindow): ContrastWindow {
+  return {
+    min: clamp(Math.round(window.min), domain.min, Math.max(domain.min, domain.max - 1)),
+    max: clamp(Math.round(window.max), Math.min(domain.min + 1, domain.max), domain.max),
+  };
+}
+
 export default function ViewerWorkspace({
   workspacePath,
   source,
@@ -296,7 +306,7 @@ export default function ViewerWorkspace({
       frame: null,
       scan: null,
       selection: null,
-      contrastMode: "auto",
+      contrastMode: "manual",
     });
 
     const program = scanSourceEffect(backend, source).pipe(
@@ -336,30 +346,21 @@ export default function ViewerWorkspace({
   useEffect(() => {
     if (!source || !selection) return;
 
-    const cacheKey = `${makeFrameKey(source, selection)}:${contrastRequestKey}`;
-
-    const applyLoadedFrame = (loaded: FrameResult) => {
-      const domain = contrastWindowForFrame(loaded);
-      const applied = loaded.appliedContrast ?? loaded.suggestedContrast ?? domain;
-      patchViewState({
-        contrastMin: clamp(
-          Math.round(applied.min),
-          domain.min,
-          Math.max(domain.min, domain.max - 1),
-        ),
-        contrastMax: clamp(
-          Math.round(applied.max),
-          Math.min(domain.min + 1, domain.max),
-          domain.max,
-        ),
-        frame: loaded,
-      });
-    };
+    const frameKey = makeFrameKey(source, selection);
+    const cacheKey = `${frameKey}:${contrastRequestKey}`;
 
     const cached = frameCacheRef.current.get(cacheKey);
     if (cached) {
+      const domain = contrastWindowForFrame(cached.frame);
+      const applied = cached.frame.appliedContrast ?? cached.frame.suggestedContrast ?? domain;
+      const nextContrast = normalizeContrastWindow(applied, domain);
       patchViewState({ error: null });
-      applyLoadedFrame(cached.frame);
+      patchViewState({
+        contrastMin: nextContrast.min,
+        contrastMax: nextContrast.max,
+        contrastMode: "manual",
+        frame: cached.frame,
+      });
       return;
     }
 
@@ -378,8 +379,17 @@ export default function ViewerWorkspace({
       ),
       Effect.tap(({ frame: loadedFrame, contrastMin, contrastMax }) =>
         Effect.sync(() => {
-          patchViewState({ contrastMin, contrastMax });
-          applyLoadedFrame(loadedFrame);
+          if (contrastMode === "auto") {
+            frameCacheRef.current.set(`${frameKey}:${contrastMin}:${contrastMax}`, {
+              frame: loadedFrame,
+            });
+          }
+          patchViewState({
+            contrastMin,
+            contrastMax,
+            contrastMode: "manual",
+            frame: loadedFrame,
+          });
         }),
       ),
       Effect.catchAll((error) =>
@@ -418,7 +428,9 @@ export default function ViewerWorkspace({
   const contrastDomain = useMemo(() => contrastWindowForFrame(frame), [frame]);
   const contrastMinSliderMax = Math.max(contrastDomain.min + 1, contrastDomain.max) - 1;
   const contrastMaxSliderMin = Math.min(contrastDomain.max - 1, contrastDomain.min + 1);
+  const [contrastDraft, setContrastDraft] = useState<ContrastWindow | null>(null);
   const gridDegrees = radiansToDegrees(grid.rotation);
+  const minGridSpacing = Math.min(grid.cellWidth, grid.cellHeight);
   const positionOptions = useMemo(() => toOptions(scan?.positions ?? []), [scan]);
   const channelOptions = useMemo(() => toOptions(scan?.channels ?? []), [scan]);
   const zOptions = useMemo(() => toOptions(scan?.zSlices ?? []), [scan]);
@@ -441,6 +453,18 @@ export default function ViewerWorkspace({
   useEffect(() => {
     setTimeSliderIndex(selectedTimeIndex);
   }, [selectedTimeIndex]);
+
+  useEffect(() => {
+    setContrastDraft({
+      min: contrastMin,
+      max: contrastMax,
+    });
+  }, [contrastMax, contrastMin]);
+
+  const displayedContrast = contrastDraft ?? {
+    min: contrastMin,
+    max: contrastMax,
+  };
 
   useEffect(() => {
     if (!grid.enabled || !frame) {
@@ -616,38 +640,58 @@ export default function ViewerWorkspace({
                   </Button>
                 }
               >
-                <Field label="Minimum" hint={String(contrastMin)}>
+                <Field label="Minimum" hint={String(displayedContrast.min)}>
                   <AppSlider
-                    value={contrastMin}
+                    value={displayedContrast.min}
                     min={contrastDomain.min}
                     max={contrastMinSliderMax}
                     step={1}
                     disabled={!frame}
                     onChange={(value) => {
+                      setContrastDraft((current) => ({
+                        min: clamp(
+                          Math.round(value),
+                          contrastDomain.min,
+                          Math.min(contrastMinSliderMax, (current ?? displayedContrast).max - 1),
+                        ),
+                        max: (current ?? displayedContrast).max,
+                      }));
+                    }}
+                    onCommit={(value) => {
                       patchViewState({
                         contrastMode: "manual",
                         contrastMin: clamp(
                           Math.round(value),
                           contrastDomain.min,
-                          Math.min(contrastMinSliderMax, contrastMax - 1),
+                          Math.min(contrastMinSliderMax, displayedContrast.max - 1),
                         ),
                       });
                     }}
                   />
                 </Field>
-                <Field label="Maximum" hint={String(contrastMax)}>
+                <Field label="Maximum" hint={String(displayedContrast.max)}>
                   <AppSlider
-                    value={contrastMax}
+                    value={displayedContrast.max}
                     min={contrastMaxSliderMin}
                     max={contrastDomain.max}
                     step={1}
                     disabled={!frame}
                     onChange={(value) => {
+                      setContrastDraft((current) => ({
+                        min: (current ?? displayedContrast).min,
+                        max: clamp(
+                          Math.round(value),
+                          Math.max(contrastMaxSliderMin, (current ?? displayedContrast).min + 1),
+                          contrastDomain.max,
+                        ),
+                      }));
+                    }}
+                    onCommit={(value) => {
                       patchViewState({
                         contrastMode: "manual",
                         contrastMax: clamp(
                           Math.round(value),
-                          Math.max(contrastMaxSliderMin, contrastMin + 1),
+                          Math.max(contrastMaxSliderMin, displayedContrast.min + 1),
                           contrastDomain.max,
                         ),
                       });
@@ -738,6 +782,7 @@ export default function ViewerWorkspace({
                   <Field label="Spacing A">
                     <NumberInput
                       value={grid.spacingA}
+                      min={minGridSpacing}
                       disabled={controlsDisabled}
                       onChange={(value) =>
                         setGrid((current) => ({
@@ -750,6 +795,7 @@ export default function ViewerWorkspace({
                   <Field label="Spacing B">
                     <NumberInput
                       value={grid.spacingB}
+                      min={minGridSpacing}
                       disabled={controlsDisabled}
                       onChange={(value) =>
                         setGrid((current) => ({
