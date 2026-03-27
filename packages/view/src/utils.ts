@@ -15,6 +15,7 @@ const LINE_DELTA_PX = 16;
 const PAGE_DELTA_PX = 320;
 const TOUCHPAD_STEP_THRESHOLD_PX = 48;
 const EXP_SCALE_FACTOR = 0.0015;
+const GRID_BOUNDS_EPSILON = 1e-6;
 
 export interface GridWheelGestureInput {
   deltaMode: number;
@@ -72,27 +73,34 @@ export function createDefaultGrid(): GridState {
     tx: 0,
     ty: 0,
     rotation: 0,
-    spacingA: 96,
-    spacingB: 96,
-    cellWidth: 72,
-    cellHeight: 72,
+    spacingA: 325,
+    spacingB: 325,
+    cellWidth: 200,
+    cellHeight: 200,
     opacity: 0.35,
   };
+}
+
+function minimumGridSpacing(cellWidth: number, cellHeight: number) {
+  return Math.max(1, Math.min(cellWidth, cellHeight));
 }
 
 export function normalizeGridState(input?: Partial<GridState>): GridState {
   const base = createDefaultGrid();
   if (!input) return base;
+  const cellWidth = Math.max(1, input.cellWidth ?? base.cellWidth);
+  const cellHeight = Math.max(1, input.cellHeight ?? base.cellHeight);
+  const minSpacing = minimumGridSpacing(cellWidth, cellHeight);
   return {
     enabled: input.enabled ?? base.enabled,
     shape: input.shape ?? base.shape,
     tx: input.tx ?? base.tx,
     ty: input.ty ?? base.ty,
     rotation: input.rotation ?? base.rotation,
-    spacingA: Math.max(1, input.spacingA ?? base.spacingA),
-    spacingB: Math.max(1, input.spacingB ?? base.spacingB),
-    cellWidth: Math.max(1, input.cellWidth ?? base.cellWidth),
-    cellHeight: Math.max(1, input.cellHeight ?? base.cellHeight),
+    spacingA: Math.max(minSpacing, input.spacingA ?? base.spacingA),
+    spacingB: Math.max(minSpacing, input.spacingB ?? base.spacingB),
+    cellWidth,
+    cellHeight,
     opacity: clamp(input.opacity ?? base.opacity, 0, 1),
   };
 }
@@ -139,18 +147,77 @@ export function estimateGridDraw(
   height: number,
   spacingA: number,
   spacingB: number,
-  maxRects = MAX_GRID_RECTS,
+  _maxRects = MAX_GRID_RECTS,
 ) {
   const minSpacing = Math.max(1, Math.min(spacingA, spacingB));
-  const maxDim = Math.max(width, height) * 2;
-  const range = Math.ceil(maxDim / minSpacing) + 2;
-  const estimated = (range * 2 + 1) ** 2;
-  const stride = estimated > maxRects ? Math.ceil(Math.sqrt(estimated / maxRects)) : 1;
+  const estimatedColumns = Math.ceil(width / minSpacing) + 3;
+  const estimatedRows = Math.ceil(height / minSpacing) + 3;
+  const range = Math.max(estimatedColumns, estimatedRows);
+  const estimated = estimatedColumns * estimatedRows;
+  const stride = 1;
   return {
     range,
     estimated,
     stride,
-    capped: stride > 1,
+    capped: false,
+  };
+}
+
+function resolveVisibleGridIndexBounds(frame: FrameResult, grid: GridState) {
+  const basis = gridBasis(grid.shape, grid.rotation, grid.spacingA, grid.spacingB);
+  const originX = frame.width / 2 + grid.tx;
+  const originY = frame.height / 2 + grid.ty;
+  const halfWidth = grid.cellWidth / 2;
+  const halfHeight = grid.cellHeight / 2;
+  const determinant = basis.a.x * basis.b.y - basis.a.y * basis.b.x;
+
+  if (Math.abs(determinant) <= GRID_BOUNDS_EPSILON) {
+    const drawStats = estimateGridDraw(frame.width, frame.height, grid.spacingA, grid.spacingB);
+    return {
+      basis,
+      originX,
+      originY,
+      halfWidth,
+      halfHeight,
+      iMin: -drawStats.range,
+      iMax: drawStats.range,
+      jMin: -drawStats.range,
+      jMax: drawStats.range,
+    };
+  }
+
+  const corners = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: frame.width + halfWidth, y: -halfHeight },
+    { x: -halfWidth, y: frame.height + halfHeight },
+    { x: frame.width + halfWidth, y: frame.height + halfHeight },
+  ];
+  let iMin = Number.POSITIVE_INFINITY;
+  let iMax = Number.NEGATIVE_INFINITY;
+  let jMin = Number.POSITIVE_INFINITY;
+  let jMax = Number.NEGATIVE_INFINITY;
+
+  for (const corner of corners) {
+    const dx = corner.x - originX;
+    const dy = corner.y - originY;
+    const i = (dx * basis.b.y - dy * basis.b.x) / determinant;
+    const j = (dy * basis.a.x - dx * basis.a.y) / determinant;
+    iMin = Math.min(iMin, i);
+    iMax = Math.max(iMax, i);
+    jMin = Math.min(jMin, j);
+    jMax = Math.max(jMax, j);
+  }
+
+  return {
+    basis,
+    originX,
+    originY,
+    halfWidth,
+    halfHeight,
+    iMin: Math.floor(iMin - GRID_BOUNDS_EPSILON),
+    iMax: Math.ceil(iMax + GRID_BOUNDS_EPSILON),
+    jMin: Math.floor(jMin - GRID_BOUNDS_EPSILON),
+    jMax: Math.ceil(jMax + GRID_BOUNDS_EPSILON),
   };
 }
 
@@ -164,16 +231,12 @@ function intersectsFrame(cell: GridCellRect, frameWidth: number, frameHeight: nu
 }
 
 export function enumerateVisibleGridCells(frame: FrameResult, grid: GridState): GridCellRect[] {
-  const drawStats = estimateGridDraw(frame.width, frame.height, grid.spacingA, grid.spacingB);
-  const basis = gridBasis(grid.shape, grid.rotation, grid.spacingA, grid.spacingB);
-  const originX = frame.width / 2 + grid.tx;
-  const originY = frame.height / 2 + grid.ty;
-  const halfWidth = grid.cellWidth / 2;
-  const halfHeight = grid.cellHeight / 2;
+  const { basis, originX, originY, halfWidth, halfHeight, iMin, iMax, jMin, jMax } =
+    resolveVisibleGridIndexBounds(frame, grid);
   const cells: GridCellRect[] = [];
 
-  for (let i = -drawStats.range; i <= drawStats.range; i += drawStats.stride) {
-    for (let j = -drawStats.range; j <= drawStats.range; j += drawStats.stride) {
+  for (let i = iMin; i <= iMax; i += 1) {
+    for (let j = jMin; j <= jMax; j += 1) {
       const centerX = originX + i * basis.a.x + j * basis.b.x;
       const centerY = originY + i * basis.a.y + j * basis.b.y;
       const cell = {

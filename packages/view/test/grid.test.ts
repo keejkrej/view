@@ -4,6 +4,7 @@ import {
   autoContrast,
   buildBboxCsv,
   classifyGridWheelGesture,
+  collectStrokeToggleCellIds,
   createDefaultGrid,
   degreesToRadians,
   estimateGridDraw,
@@ -17,9 +18,17 @@ import {
 
 describe("grid utils", () => {
   test("normalizes grid inputs", () => {
-    const grid = normalizeGridState({ spacingA: -1, opacity: 10, enabled: true });
+    const grid = normalizeGridState({
+      spacingA: -1,
+      spacingB: 10,
+      cellWidth: 12,
+      cellHeight: 20,
+      opacity: 10,
+      enabled: true,
+    });
     expect(grid.enabled).toBe(true);
-    expect(grid.spacingA).toBe(1);
+    expect(grid.spacingA).toBe(12);
+    expect(grid.spacingB).toBe(12);
     expect(grid.opacity).toBe(1);
   });
 
@@ -31,11 +40,34 @@ describe("grid utils", () => {
     expect(basis.b.y).toBeCloseTo(20, 6);
   });
 
-  test("caps dense grid previews", () => {
+  test("does not cap dense grid previews", () => {
     const stats = estimateGridDraw(4096, 4096, 8, 8, 8000);
     expect(stats.estimated).toBeGreaterThan(8000);
-    expect(stats.stride).toBeGreaterThan(1);
-    expect(stats.capped).toBe(true);
+    expect(stats.stride).toBe(1);
+    expect(stats.capped).toBe(false);
+  });
+
+  test("enumerates dense grids without skipping neighboring cells", () => {
+    const cells = enumerateVisibleGridCells(
+      {
+        width: 1024,
+        height: 1024,
+        pixels: new Uint16Array(1024 * 1024),
+      },
+      normalizeGridState({
+        enabled: true,
+        spacingA: 24,
+        spacingB: 24,
+        cellWidth: 16,
+        cellHeight: 16,
+      }),
+    );
+
+    const ids = new Set(cells.map((cell) => cell.id));
+    expect(ids.has("0:0")).toBe(true);
+    expect(ids.has("1:0")).toBe(true);
+    expect(ids.has("0:1")).toBe(true);
+    expect(ids.has("-1:0")).toBe(true);
   });
 
   test("finds useful contrast window", () => {
@@ -195,7 +227,7 @@ describe("grid utils", () => {
     expect(cells.some((cell) => cell.x === -25 && cell.y === 25)).toBe(true);
   });
 
-  test("omits cells fully outside the frame", () => {
+  test("keeps translated lattice cells visible", () => {
     const cells = enumerateVisibleGridCells(
       {
         width: 100,
@@ -213,7 +245,11 @@ describe("grid utils", () => {
       }),
     );
 
-    expect(cells.length).toBe(0);
+    const ids = new Set(cells.map((cell) => cell.id));
+    expect(cells).toHaveLength(9);
+    expect(ids.has("-21:-1")).toBe(true);
+    expect(ids.has("-20:0")).toBe(true);
+    expect(ids.has("-19:1")).toBe(true);
   });
 
   test("finds the clicked visible cell", () => {
@@ -233,6 +269,31 @@ describe("grid utils", () => {
     const cell = findGridCellAtPoint(frame, grid, 1, 30);
     expect(cell?.id).toBe("-1:0");
     expect(findGridCellAtPoint(frame, grid, 150, 150)).toBeNull();
+  });
+
+  test("collects stroke cells only once across a backtracked stroke", () => {
+    const frame = {
+      width: 100,
+      height: 100,
+      pixels: new Uint16Array(10000),
+    };
+    const grid = normalizeGridState({
+      enabled: true,
+      spacingA: 50,
+      spacingB: 50,
+      cellWidth: 50,
+      cellHeight: 50,
+    });
+    const hitCellIds = new Set<string>();
+
+    for (const cellId of collectStrokeToggleCellIds(frame, grid, { x: 1, y: 30 }, { x: 60, y: 30 }, hitCellIds)) {
+      hitCellIds.add(cellId);
+    }
+    for (const cellId of collectStrokeToggleCellIds(frame, grid, { x: 60, y: 30 }, { x: 1, y: 30 }, hitCellIds)) {
+      hitCellIds.add(cellId);
+    }
+
+    expect(Array.from(hitCellIds).sort()).toEqual(["-1:0", "0:0"]);
   });
 
   test("builds bbox csv and clips edge-touching cells", () => {
