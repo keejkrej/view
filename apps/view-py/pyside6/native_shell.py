@@ -17,23 +17,22 @@ from typing import Any
 import numpy as np
 import tifffile
 from PySide6.QtCore import QObject, QSignalBlocker, Qt, QUrl, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QDoubleValidator, QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QPushButton,
-    QScrollArea,
+    QSlider,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -613,6 +612,7 @@ class ViewerMainWindow(QMainWindow):
         self._contrast_max = 65535
         self._auto_contrast_request_token = 0
         self._selection_mode = False
+        self._time_values: list[int] = []
         self._excluded_cell_ids_by_position: ExcludedCellIdsByPosition = {}
         self._error_message: str | None = None
         self._save_message: tuple[str, str] | None = None
@@ -669,47 +669,57 @@ class ViewerMainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _build_left_panel(self) -> QWidget:
-        panel = QWidget()
+        panel = QGroupBox()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        image_group = QGroupBox("Image")
-        image_form = QFormLayout(image_group)
+        layout.addWidget(self._create_section_header("Image"))
+        image_form = QFormLayout()
         self.position_combo = QComboBox()
         self.position_combo.currentIndexChanged.connect(self._on_position_changed)
         self.channel_combo = QComboBox()
         self.channel_combo.currentIndexChanged.connect(self._on_channel_changed)
-        self.time_combo = QComboBox()
-        self.time_combo.currentIndexChanged.connect(self._on_time_changed)
+        self.time_slider = self._create_slider(0, 0)
+        self.time_slider.valueChanged.connect(self._on_time_slider_changed)
+        self.time_slider.sliderReleased.connect(self._commit_time_slider)
+        self.time_value_label = QLabel("0")
+        self.time_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.time_value_label.setMinimumWidth(40)
         self.z_combo = QComboBox()
         self.z_combo.currentIndexChanged.connect(self._on_z_changed)
         image_form.addRow("Position", self.position_combo)
         image_form.addRow("Channel", self.channel_combo)
-        image_form.addRow("Time", self.time_combo)
+        image_form.addRow("Time", self._create_slider_row(self.time_slider, self.time_value_label))
         image_form.addRow("Z Slice", self.z_combo)
-        layout.addWidget(image_group)
+        layout.addLayout(image_form)
 
-        contrast_group = QGroupBox("Contrast")
-        contrast_layout = QVBoxLayout(contrast_group)
-        contrast_layout.setContentsMargins(12, 12, 12, 12)
-        contrast_layout.setSpacing(8)
+        layout.addSpacing(4)
         self.auto_contrast_button = QPushButton("Auto")
         self.auto_contrast_button.clicked.connect(self._on_auto_contrast)
-        contrast_layout.addWidget(self.auto_contrast_button)
+        layout.addWidget(self._create_section_header("Contrast", [self.auto_contrast_button]))
+        contrast_layout = QVBoxLayout()
+        contrast_layout.setContentsMargins(0, 0, 0, 0)
+        contrast_layout.setSpacing(8)
 
         contrast_form = QFormLayout()
-        self.contrast_min_spin = self._create_double_spin(0.0, 65535.0, 1.0, 0)
-        self.contrast_min_spin.valueChanged.connect(self._on_contrast_changed)
-        self.contrast_max_spin = self._create_double_spin(1.0, 65535.0, 1.0, 0)
-        self.contrast_max_spin.valueChanged.connect(self._on_contrast_changed)
-        contrast_form.addRow("Minimum", self.contrast_min_spin)
-        contrast_form.addRow("Maximum", self.contrast_max_spin)
+        self.contrast_min_label = self._create_value_label("0")
+        self.contrast_min_slider = self._create_slider(0, 65534)
+        self.contrast_min_slider.valueChanged.connect(self._on_contrast_slider_changed)
+        self.contrast_min_slider.sliderReleased.connect(self._on_contrast_changed)
+        self.contrast_max_label = self._create_value_label("65535")
+        self.contrast_max_slider = self._create_slider(1, 65535)
+        self.contrast_max_slider.valueChanged.connect(self._on_contrast_slider_changed)
+        self.contrast_max_slider.sliderReleased.connect(self._on_contrast_changed)
+        contrast_form.addRow("Minimum", self._create_slider_row(self.contrast_min_slider, self.contrast_min_label))
+        contrast_form.addRow("Maximum", self._create_slider_row(self.contrast_max_slider, self.contrast_max_label))
         contrast_layout.addLayout(contrast_form)
-        layout.addWidget(contrast_group)
+        layout.addLayout(contrast_layout)
         layout.addStretch(1)
 
-        return self._wrap_panel(panel, 280)
+        panel.setMinimumWidth(280)
+        panel.setMaximumWidth(280)
+        return panel
 
     def _build_canvas_panel(self) -> QWidget:
         self.view = QWebEngineView()
@@ -725,107 +735,163 @@ class ViewerMainWindow(QMainWindow):
         return self.view
 
     def _build_right_panel(self) -> QWidget:
-        panel = QWidget()
+        panel = QGroupBox()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        grid_group = QGroupBox("Grid")
-        grid_layout = QVBoxLayout(grid_group)
-        grid_layout.setContentsMargins(12, 12, 12, 12)
-        grid_layout.setSpacing(8)
-
-        grid_actions = QHBoxLayout()
+        self.disable_edge_button = QPushButton("Disable Edge")
+        self.disable_edge_button.clicked.connect(self.disable_edge_bbox)
         self.grid_reset_button = QPushButton("Reset")
         self.grid_reset_button.clicked.connect(self._on_grid_reset)
-        self.grid_enabled_checkbox = QCheckBox("Enabled")
-        self.grid_enabled_checkbox.toggled.connect(self._on_grid_enabled_toggled)
-        grid_actions.addWidget(self.grid_reset_button)
-        grid_actions.addStretch(1)
-        grid_actions.addWidget(self.grid_enabled_checkbox)
-        grid_layout.addLayout(grid_actions)
+        self.grid_enabled_button = QPushButton("Off")
+        self.grid_enabled_button.clicked.connect(lambda *_args: self._on_grid_enabled_toggled(not bool(self._grid["enabled"])))
+        layout.addWidget(
+            self._create_section_header(
+                "Grid",
+                [self.grid_reset_button, self.grid_enabled_button],
+            )
+        )
 
         grid_form = QFormLayout()
         self.grid_shape_combo = QComboBox()
         self.grid_shape_combo.addItem("Square", "square")
         self.grid_shape_combo.addItem("Hex", "hex")
         self.grid_shape_combo.currentIndexChanged.connect(self._on_grid_shape_changed)
-        self.grid_rotation_spin = self._create_double_spin(-180.0, 180.0, 0.1, 1)
-        self.grid_rotation_spin.valueChanged.connect(self._on_grid_rotation_changed)
-        self.grid_spacing_a_spin = self._create_double_spin(1.0, 10000.0, 0.5, 2)
-        self.grid_spacing_a_spin.valueChanged.connect(self._on_grid_spacing_changed)
-        self.grid_spacing_b_spin = self._create_double_spin(1.0, 10000.0, 0.5, 2)
-        self.grid_spacing_b_spin.valueChanged.connect(self._on_grid_spacing_changed)
-        self.grid_cell_width_spin = self._create_double_spin(1.0, 10000.0, 0.5, 2)
-        self.grid_cell_width_spin.valueChanged.connect(self._on_grid_cell_size_changed)
-        self.grid_cell_height_spin = self._create_double_spin(1.0, 10000.0, 0.5, 2)
-        self.grid_cell_height_spin.valueChanged.connect(self._on_grid_cell_size_changed)
-        self.grid_tx_spin = self._create_double_spin(-100000.0, 100000.0, 0.5, 2)
-        self.grid_tx_spin.valueChanged.connect(self._on_grid_offset_changed)
-        self.grid_ty_spin = self._create_double_spin(-100000.0, 100000.0, 0.5, 2)
-        self.grid_ty_spin.valueChanged.connect(self._on_grid_offset_changed)
-        self.grid_opacity_spin = self._create_double_spin(0.0, 1.0, 0.01, 2)
-        self.grid_opacity_spin.valueChanged.connect(self._on_grid_opacity_changed)
+        self.grid_rotation_slider = self._create_slider(-1800, 1800)
+        self.grid_rotation_slider.valueChanged.connect(self._on_grid_rotation_slider_changed)
+        self.grid_rotation_label = self._create_value_label("0.0°")
+        self.grid_spacing_a_input = self._create_number_input(1.0, 10000.0, 2)
+        self.grid_spacing_a_input.editingFinished.connect(self._on_grid_spacing_changed)
+        self.grid_spacing_b_input = self._create_number_input(1.0, 10000.0, 2)
+        self.grid_spacing_b_input.editingFinished.connect(self._on_grid_spacing_changed)
+        self.grid_cell_width_input = self._create_number_input(1.0, 10000.0, 2)
+        self.grid_cell_width_input.editingFinished.connect(self._on_grid_cell_size_changed)
+        self.grid_cell_height_input = self._create_number_input(1.0, 10000.0, 2)
+        self.grid_cell_height_input.editingFinished.connect(self._on_grid_cell_size_changed)
+        self.grid_tx_input = self._create_number_input(-100000.0, 100000.0, 2)
+        self.grid_tx_input.editingFinished.connect(self._on_grid_offset_changed)
+        self.grid_ty_input = self._create_number_input(-100000.0, 100000.0, 2)
+        self.grid_ty_input.editingFinished.connect(self._on_grid_offset_changed)
+        self.grid_opacity_slider = self._create_slider(0, 100)
+        self.grid_opacity_slider.valueChanged.connect(self._on_grid_opacity_slider_changed)
+        self.grid_opacity_label = self._create_value_label("0.50")
         grid_form.addRow("Shape", self.grid_shape_combo)
-        grid_form.addRow("Rotation", self.grid_rotation_spin)
-        grid_form.addRow("Spacing A", self.grid_spacing_a_spin)
-        grid_form.addRow("Spacing B", self.grid_spacing_b_spin)
-        grid_form.addRow("Cell Width", self.grid_cell_width_spin)
-        grid_form.addRow("Cell Height", self.grid_cell_height_spin)
-        grid_form.addRow("Offset X", self.grid_tx_spin)
-        grid_form.addRow("Offset Y", self.grid_ty_spin)
-        grid_form.addRow("Opacity", self.grid_opacity_spin)
-        grid_layout.addLayout(grid_form)
-        layout.addWidget(grid_group)
+        grid_form.addRow("Rotation", self._create_slider_row(self.grid_rotation_slider, self.grid_rotation_label))
+        grid_form.addRow(
+            "Spacing",
+            self._create_pair_input_row("A", self.grid_spacing_a_input, "B", self.grid_spacing_b_input),
+        )
+        grid_form.addRow(
+            "Cell",
+            self._create_pair_input_row("W", self.grid_cell_width_input, "H", self.grid_cell_height_input),
+        )
+        grid_form.addRow(
+            "Offset",
+            self._create_pair_input_row("X", self.grid_tx_input, "Y", self.grid_ty_input),
+        )
+        grid_form.addRow("Opacity", self._create_slider_row(self.grid_opacity_slider, self.grid_opacity_label))
+        layout.addLayout(grid_form)
 
-        select_group = QGroupBox("Select")
-        select_layout = QVBoxLayout(select_group)
-        select_layout.setContentsMargins(12, 12, 12, 12)
-        select_layout.setSpacing(8)
-        select_actions = QHBoxLayout()
-        self.disable_edge_button = QPushButton("Disable Edge")
-        self.disable_edge_button.clicked.connect(self.disable_edge_bbox)
+        layout.addSpacing(4)
+        self.selection_mode_button = QPushButton("Off")
+        self.selection_mode_button.clicked.connect(
+            lambda *_args: self._on_selection_mode_toggled(not self._selection_mode)
+        )
         self.save_button = QPushButton("Save")
         self.save_button.clicked.connect(self.save_current_bbox)
-        self.selection_mode_checkbox = QCheckBox("Selection Mode")
-        self.selection_mode_checkbox.toggled.connect(self._on_selection_mode_toggled)
-        select_actions.addWidget(self.disable_edge_button)
-        select_actions.addWidget(self.save_button)
-        select_actions.addStretch(1)
-        select_actions.addWidget(self.selection_mode_checkbox)
-        select_layout.addLayout(select_actions)
+        layout.addWidget(
+            self._create_section_header(
+                "Select",
+                [self.disable_edge_button, self.save_button, self.selection_mode_button],
+            )
+        )
 
-        counts_form = QFormLayout()
         self.included_count_label = QLabel("0")
+        self.included_count_label.setStyleSheet("font-weight: 600;")
         self.excluded_count_label = QLabel("0")
-        counts_form.addRow("Included", self.included_count_label)
-        counts_form.addRow("Excluded", self.excluded_count_label)
-        select_layout.addLayout(counts_form)
-        layout.addWidget(select_group)
+        self.excluded_count_label.setStyleSheet("font-weight: 600;")
+        layout.addWidget(
+            self._create_pair_value_row("Included", self.included_count_label, "Excluded", self.excluded_count_label)
+        )
         layout.addStretch(1)
 
-        return self._wrap_panel(panel, 320)
+        panel.setMinimumWidth(320)
+        panel.setMaximumWidth(320)
+        return panel
 
-    def _create_double_spin(
-        self,
-        minimum: float,
-        maximum: float,
-        step: float,
-        decimals: int,
-    ) -> QDoubleSpinBox:
-        spin = QDoubleSpinBox()
-        spin.setRange(minimum, maximum)
-        spin.setSingleStep(step)
-        spin.setDecimals(decimals)
-        spin.setKeyboardTracking(False)
-        return spin
+    def _create_slider(self, minimum: int, maximum: int) -> QSlider:
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(minimum, maximum)
+        slider.setSingleStep(1)
+        slider.setPageStep(max(1, (maximum - minimum) // 20))
+        return slider
 
-    def _wrap_panel(self, widget: QWidget, width: int) -> QWidget:
-        area = QScrollArea()
-        area.setWidgetResizable(True)
-        area.setMinimumWidth(width)
-        area.setWidget(widget)
-        return area
+    def _create_number_input(self, minimum: float, maximum: float, decimals: int) -> QLineEdit:
+        input_widget = QLineEdit()
+        validator = QDoubleValidator(minimum, maximum, decimals, input_widget)
+        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        input_widget.setValidator(validator)
+        input_widget.setAlignment(Qt.AlignmentFlag.AlignRight)
+        input_widget.setFixedWidth(72)
+        return input_widget
+
+    def _create_value_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        label.setMinimumWidth(56)
+        return label
+
+    def _create_slider_row(self, slider: QWidget, tail: QWidget) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(slider, 1)
+        layout.addWidget(tail)
+        return row
+
+    def _create_pair_input_row(self, left_label: str, left_widget: QWidget, right_label: str, right_widget: QWidget) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(QLabel(left_label))
+        layout.addWidget(left_widget)
+        layout.addSpacing(4)
+        layout.addWidget(QLabel(right_label))
+        layout.addWidget(right_widget)
+        layout.addStretch(1)
+        return row
+
+    def _create_pair_value_row(self, left_label: str, left_widget: QWidget, right_label: str, right_widget: QWidget) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(QLabel(left_label))
+        layout.addWidget(left_widget)
+        layout.addSpacing(8)
+        layout.addWidget(QLabel(right_label))
+        layout.addWidget(right_widget)
+        layout.addStretch(1)
+        return row
+
+    def _create_section_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("font-weight: 600;")
+        return label
+
+    def _create_section_header(self, text: str, actions: list[QWidget] | None = None) -> QWidget:
+        header = QWidget()
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self._create_section_label(text))
+        layout.addStretch(1)
+        for action in actions or []:
+            layout.addWidget(action)
+        return header
 
     def _with_wait_cursor(self, callback: Callable[..., Any], *args: Any) -> Any:
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -905,47 +971,114 @@ class ViewerMainWindow(QMainWindow):
         scan = self._scan or {"positions": [], "channels": [], "times": [], "zSlices": []}
         self._set_combo_items(self.position_combo, list(scan.get("positions", [])), self._selection["pos"] if self._selection else None)
         self._set_combo_items(self.channel_combo, list(scan.get("channels", [])), self._selection["channel"] if self._selection else None)
-        self._set_combo_items(self.time_combo, list(scan.get("times", [])), self._selection["time"] if self._selection else None)
         self._set_combo_items(self.z_combo, list(scan.get("zSlices", [])), self._selection["z"] if self._selection else None)
+        self._time_values = [int(value) for value in scan.get("times", [])]
+        slider_blocker = QSignalBlocker(self.time_slider)
+        if self._time_values:
+            current_time = self._selection["time"] if self._selection else self._time_values[0]
+            try:
+                current_index = self._time_values.index(current_time)
+            except ValueError:
+                current_index = 0
+            self.time_slider.setRange(0, max(0, len(self._time_values) - 1))
+            self.time_slider.setValue(current_index)
+            self.time_value_label.setText(str(self._time_values[current_index]))
+        else:
+            self.time_slider.setRange(0, 0)
+            self.time_slider.setValue(0)
+            self.time_value_label.setText("0")
+        del slider_blocker
+
+    def _format_number(self, value: float, decimals: int) -> str:
+        if decimals == 0:
+            return str(int(round(value)))
+        return f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+
+    def _set_number_input_value(self, widget: QLineEdit, value: float, decimals: int) -> None:
+        blocker = QSignalBlocker(widget)
+        widget.setText(self._format_number(value, decimals))
+        del blocker
+
+    def _read_number_input_value(self, widget: QLineEdit, fallback: float) -> float:
+        text = widget.text().strip()
+        if not text:
+            return fallback
+        try:
+            return float(text)
+        except ValueError:
+            return fallback
+
+    def _normalize_contrast_values(
+        self,
+        minimum: float,
+        maximum: float,
+        preferred: str,
+    ) -> tuple[int, int]:
+        domain_min = int(self._contrast_domain["min"])
+        domain_max = int(self._contrast_domain["max"])
+        next_min = int(round(minimum))
+        next_max = int(round(maximum))
+        next_min = int(clamp(next_min, domain_min, max(domain_min, domain_max - 1)))
+        next_max = int(clamp(next_max, min(domain_min + 1, domain_max), domain_max))
+        if next_min >= next_max:
+            if preferred == "min":
+                next_min = max(domain_min, next_max - 1)
+            else:
+                next_max = min(domain_max, next_min + 1)
+        return next_min, next_max
+
+    def _set_contrast_controls(self, minimum: int, maximum: int) -> None:
+        normalized_min, normalized_max = self._normalize_contrast_values(minimum, maximum, "max")
+        domain_min = int(self._contrast_domain["min"])
+        domain_max = int(self._contrast_domain["max"])
+        min_upper = max(domain_min, domain_max - 1)
+        max_lower = min(domain_max, domain_min + 1)
+        blockers = [
+            QSignalBlocker(self.contrast_min_slider),
+            QSignalBlocker(self.contrast_max_slider),
+        ]
+        self.contrast_min_slider.setRange(domain_min, max(domain_min, normalized_max - 1))
+        self.contrast_max_slider.setRange(min(domain_max, normalized_min + 1), domain_max)
+        self.contrast_min_slider.setValue(normalized_min)
+        self.contrast_max_slider.setValue(normalized_max)
+        self.contrast_min_label.setText(str(normalized_min))
+        self.contrast_max_label.setText(str(normalized_max))
+        del blockers
 
     def _sync_contrast_controls(self) -> None:
-        minimum = float(self._contrast_domain["min"])
-        maximum = float(self._contrast_domain["max"])
-        min_upper = max(minimum, maximum - 1)
-        max_lower = min(maximum, minimum + 1)
-        blockers = [QSignalBlocker(self.contrast_min_spin), QSignalBlocker(self.contrast_max_spin)]
-        self.contrast_min_spin.setRange(minimum, min_upper)
-        self.contrast_max_spin.setRange(max_lower, maximum)
-        self.contrast_min_spin.setValue(float(self._contrast_min))
-        self.contrast_max_spin.setValue(float(self._contrast_max))
-        del blockers
+        self._set_contrast_controls(int(self._contrast_min), int(self._contrast_max))
 
     def _sync_grid_controls(self) -> None:
         blockers = [
-            QSignalBlocker(self.grid_enabled_checkbox),
             QSignalBlocker(self.grid_shape_combo),
-            QSignalBlocker(self.grid_rotation_spin),
-            QSignalBlocker(self.grid_spacing_a_spin),
-            QSignalBlocker(self.grid_spacing_b_spin),
-            QSignalBlocker(self.grid_cell_width_spin),
-            QSignalBlocker(self.grid_cell_height_spin),
-            QSignalBlocker(self.grid_tx_spin),
-            QSignalBlocker(self.grid_ty_spin),
-            QSignalBlocker(self.grid_opacity_spin),
+            QSignalBlocker(self.grid_rotation_slider),
+            QSignalBlocker(self.grid_opacity_slider),
         ]
         min_spacing = minimum_grid_spacing(float(self._grid["cellWidth"]), float(self._grid["cellHeight"]))
-        self.grid_enabled_checkbox.setChecked(bool(self._grid["enabled"]))
+        self.grid_enabled_button.setText("On" if self._grid["enabled"] else "Off")
         self.grid_shape_combo.setCurrentIndex(0 if self._grid["shape"] == "square" else 1)
-        self.grid_rotation_spin.setValue(math.degrees(float(self._grid["rotation"])))
-        self.grid_spacing_a_spin.setMinimum(min_spacing)
-        self.grid_spacing_b_spin.setMinimum(min_spacing)
-        self.grid_spacing_a_spin.setValue(float(self._grid["spacingA"]))
-        self.grid_spacing_b_spin.setValue(float(self._grid["spacingB"]))
-        self.grid_cell_width_spin.setValue(float(self._grid["cellWidth"]))
-        self.grid_cell_height_spin.setValue(float(self._grid["cellHeight"]))
-        self.grid_tx_spin.setValue(float(self._grid["tx"]))
-        self.grid_ty_spin.setValue(float(self._grid["ty"]))
-        self.grid_opacity_spin.setValue(float(self._grid["opacity"]))
+        rotation_degrees = math.degrees(float(self._grid["rotation"]))
+        self.grid_rotation_slider.setValue(int(round(rotation_degrees * 10)))
+        self.grid_rotation_label.setText(f"{rotation_degrees:.1f}°")
+        self._set_number_input_value(self.grid_spacing_a_input, float(self._grid["spacingA"]), 2)
+        self._set_number_input_value(self.grid_spacing_b_input, float(self._grid["spacingB"]), 2)
+        self._set_number_input_value(self.grid_cell_width_input, float(self._grid["cellWidth"]), 2)
+        self._set_number_input_value(self.grid_cell_height_input, float(self._grid["cellHeight"]), 2)
+        self._set_number_input_value(self.grid_tx_input, float(self._grid["tx"]), 2)
+        self._set_number_input_value(self.grid_ty_input, float(self._grid["ty"]), 2)
+        for input_widget, minimum in (
+            (self.grid_spacing_a_input, min_spacing),
+            (self.grid_spacing_b_input, min_spacing),
+            (self.grid_cell_width_input, 1.0),
+            (self.grid_cell_height_input, 1.0),
+            (self.grid_tx_input, -100000.0),
+            (self.grid_ty_input, -100000.0),
+        ):
+            validator = input_widget.validator()
+            if isinstance(validator, QDoubleValidator):
+                validator.setBottom(minimum)
+        self.grid_opacity_slider.setValue(int(round(float(self._grid["opacity"]) * 100)))
+        self.grid_opacity_label.setText(f"{float(self._grid['opacity']):.2f}")
         del blockers
 
     def _refresh_counts(self) -> None:
@@ -974,31 +1107,29 @@ class ViewerMainWindow(QMainWindow):
         self.open_nd2_button.setEnabled(has_workspace)
         self.position_combo.setEnabled(has_selection)
         self.channel_combo.setEnabled(has_selection)
-        self.time_combo.setEnabled(has_selection)
+        self.time_slider.setEnabled(has_selection and len(self._time_values) > 0)
         self.z_combo.setEnabled(has_selection)
         self.auto_contrast_button.setEnabled(has_frame)
-        self.contrast_min_spin.setEnabled(has_frame)
-        self.contrast_max_spin.setEnabled(has_frame)
+        self.contrast_min_slider.setEnabled(has_frame)
+        self.contrast_max_slider.setEnabled(has_frame)
         self.grid_reset_button.setEnabled(grid_controls_enabled)
-        self.grid_enabled_checkbox.setEnabled(grid_controls_enabled)
+        self.grid_enabled_button.setEnabled(grid_controls_enabled)
         self.grid_shape_combo.setEnabled(grid_controls_enabled)
-        self.grid_rotation_spin.setEnabled(grid_controls_enabled)
-        self.grid_spacing_a_spin.setEnabled(grid_controls_enabled)
-        self.grid_spacing_b_spin.setEnabled(grid_controls_enabled)
-        self.grid_cell_width_spin.setEnabled(grid_controls_enabled)
-        self.grid_cell_height_spin.setEnabled(grid_controls_enabled)
-        self.grid_tx_spin.setEnabled(grid_controls_enabled)
-        self.grid_ty_spin.setEnabled(grid_controls_enabled)
-        self.grid_opacity_spin.setEnabled(grid_controls_enabled)
+        self.grid_rotation_slider.setEnabled(grid_controls_enabled)
+        self.grid_spacing_a_input.setEnabled(grid_controls_enabled)
+        self.grid_spacing_b_input.setEnabled(grid_controls_enabled)
+        self.grid_cell_width_input.setEnabled(grid_controls_enabled)
+        self.grid_cell_height_input.setEnabled(grid_controls_enabled)
+        self.grid_tx_input.setEnabled(grid_controls_enabled)
+        self.grid_ty_input.setEnabled(grid_controls_enabled)
+        self.grid_opacity_slider.setEnabled(grid_controls_enabled)
         selection_enabled = has_frame and bool(self._grid["enabled"])
-        self.selection_mode_checkbox.setEnabled(selection_enabled)
+        self.selection_mode_button.setEnabled(selection_enabled)
         self.disable_edge_button.setEnabled(has_frame and has_selection)
         self.save_button.setEnabled(has_workspace and has_frame and has_selection)
         if not selection_enabled and self._selection_mode:
             self._selection_mode = False
-        blocker = QSignalBlocker(self.selection_mode_checkbox)
-        self.selection_mode_checkbox.setChecked(self._selection_mode)
-        del blocker
+        self.selection_mode_button.setText("On" if self._selection_mode else "Off")
 
     def _sync_ui(self) -> None:
         self._sync_root_label()
@@ -1025,6 +1156,7 @@ class ViewerMainWindow(QMainWindow):
         self._contrast_max = 65535
         self._auto_contrast_request_token = 0
         self._selection_mode = False
+        self._time_values = []
         self._excluded_cell_ids_by_position = clear_excluded_cell_ids()
         self._set_error(None)
         self._clear_save_message()
@@ -1192,10 +1324,21 @@ class ViewerMainWindow(QMainWindow):
         if value is not None:
             self._set_selection_key("channel", int(value))
 
-    def _on_time_changed(self, *_args: Any) -> None:
-        value = self.time_combo.currentData()
-        if value is not None:
-            self._set_selection_key("time", int(value))
+    def _on_time_slider_changed(self, value: int) -> None:
+        if not self._time_values:
+            self.time_value_label.setText("0")
+            return
+        index = int(clamp(value, 0, len(self._time_values) - 1))
+        self.time_value_label.setText(str(self._time_values[index]))
+        if not self.time_slider.isSliderDown():
+            self._commit_time_slider()
+
+    def _commit_time_slider(self) -> None:
+        if not self._time_values:
+            return
+        index = int(clamp(self.time_slider.value(), 0, len(self._time_values) - 1))
+        self.time_value_label.setText(str(self._time_values[index]))
+        self._set_selection_key("time", int(self._time_values[index]))
 
     def _on_z_changed(self, *_args: Any) -> None:
         value = self.z_combo.currentData()
@@ -1209,31 +1352,33 @@ class ViewerMainWindow(QMainWindow):
         self._auto_contrast_request_token += 1
         self.load_current_frame()
 
+    def _on_contrast_slider_changed(self, *_args: Any) -> None:
+        preferred = "min" if self.sender() is self.contrast_min_slider else "max"
+        minimum, maximum = self._normalize_contrast_values(
+            self.contrast_min_slider.value(),
+            self.contrast_max_slider.value(),
+            preferred,
+        )
+        self._set_contrast_controls(minimum, maximum)
+        if not (
+            self.contrast_min_slider.isSliderDown()
+            or self.contrast_max_slider.isSliderDown()
+        ):
+            self._on_contrast_changed()
+
     def _on_contrast_changed(self, *_args: Any) -> None:
         if not self._frame_payload:
             return
-        minimum = int(self.contrast_min_spin.value())
-        maximum = int(self.contrast_max_spin.value())
-        if minimum >= maximum:
-            if self.sender() is self.contrast_min_spin:
-                minimum = maximum - 1
-            else:
-                maximum = minimum + 1
+        preferred = "min" if self.sender() is self.contrast_min_slider else "max"
+        minimum, maximum = self._normalize_contrast_values(
+            self.contrast_min_slider.value(),
+            self.contrast_max_slider.value(),
+            preferred,
+        )
+        self._set_contrast_controls(minimum, maximum)
         self._contrast_mode = "manual"
-        self._contrast_min = int(
-            clamp(
-                minimum,
-                self._contrast_domain["min"],
-                max(self._contrast_domain["min"], self._contrast_domain["max"] - 1),
-            )
-        )
-        self._contrast_max = int(
-            clamp(
-                maximum,
-                min(self._contrast_domain["min"] + 1, self._contrast_domain["max"]),
-                self._contrast_domain["max"],
-            )
-        )
+        self._contrast_min = minimum
+        self._contrast_max = maximum
         self.load_current_frame()
 
     def _on_grid_reset(self, *_args: Any) -> None:
@@ -1248,20 +1393,31 @@ class ViewerMainWindow(QMainWindow):
         if value is not None:
             self._update_grid({"shape": str(value)})
 
-    def _on_grid_rotation_changed(self, *_args: Any) -> None:
-        self._update_grid({"rotation": math.radians(self.grid_rotation_spin.value())})
+    def _on_grid_rotation_slider_changed(self, value: int) -> None:
+        degrees = value / 10.0
+        self.grid_rotation_label.setText(f"{degrees:.1f}°")
+        self._update_grid({"rotation": math.radians(degrees)})
 
     def _on_grid_spacing_changed(self, *_args: Any) -> None:
-        self._update_grid({"spacingA": self.grid_spacing_a_spin.value(), "spacingB": self.grid_spacing_b_spin.value()})
+        min_spacing = minimum_grid_spacing(float(self._grid["cellWidth"]), float(self._grid["cellHeight"]))
+        spacing_a = max(min_spacing, self._read_number_input_value(self.grid_spacing_a_input, float(self._grid["spacingA"])))
+        spacing_b = max(min_spacing, self._read_number_input_value(self.grid_spacing_b_input, float(self._grid["spacingB"])))
+        self._update_grid({"spacingA": spacing_a, "spacingB": spacing_b})
 
     def _on_grid_cell_size_changed(self, *_args: Any) -> None:
-        self._update_grid({"cellWidth": self.grid_cell_width_spin.value(), "cellHeight": self.grid_cell_height_spin.value()})
+        cell_width = max(1.0, self._read_number_input_value(self.grid_cell_width_input, float(self._grid["cellWidth"])))
+        cell_height = max(1.0, self._read_number_input_value(self.grid_cell_height_input, float(self._grid["cellHeight"])))
+        self._update_grid({"cellWidth": cell_width, "cellHeight": cell_height})
 
     def _on_grid_offset_changed(self, *_args: Any) -> None:
-        self._update_grid({"tx": self.grid_tx_spin.value(), "ty": self.grid_ty_spin.value()})
+        tx = self._read_number_input_value(self.grid_tx_input, float(self._grid["tx"]))
+        ty = self._read_number_input_value(self.grid_ty_input, float(self._grid["ty"]))
+        self._update_grid({"tx": tx, "ty": ty})
 
-    def _on_grid_opacity_changed(self, *_args: Any) -> None:
-        self._update_grid({"opacity": self.grid_opacity_spin.value()})
+    def _on_grid_opacity_slider_changed(self, value: int) -> None:
+        opacity = value / 100.0
+        self.grid_opacity_label.setText(f"{opacity:.2f}")
+        self._update_grid({"opacity": opacity})
 
     def _on_selection_mode_toggled(self, checked: bool) -> None:
         enabled = bool(checked and self._frame_payload and self._grid["enabled"])
