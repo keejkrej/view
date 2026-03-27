@@ -2,8 +2,9 @@
 
 Shared viewer frontend with two thin desktop wrapper families:
 
-- `packages/view`: reusable viewer surface, viewer-domain types/utils, and WebSocket client
-- `packages/shared/ui`: shared React web primitives and theme CSS for app shells
+- `packages/view-react`: reusable viewer surface, viewer-domain types/utils, and WebSocket client
+- `packages/view-grid-ts`: pure TypeScript grid/bbox math shared by viewer shells
+- `packages/ui`: shared React web primitives and theme CSS for app shells
 - `apps/view-rs/web` + `apps/view-rs/tauri`: Rust/Tauri wrapper with a Rust WebSocket backend on `ws://127.0.0.1:47834`
 - `apps/view-py/web` + `apps/view-py/pyside6`: PySide6 wrapper with a Python WebSocket backend on `ws://127.0.0.1:47835`
 

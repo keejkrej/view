@@ -4,9 +4,10 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@view/shared-ui": ["../../packages/shared/ui/src/index.ts"],
-      "@view/shared-ui/theme.css": ["../../packages/shared/ui/src/theme.css"],
-      "@view/view": ["../../packages/view/src/index.ts"]
+      "@view/grid": ["../../packages/view-grid-ts/src/index.ts"],
+      "@view/ui": ["../../packages/ui/src/index.ts"],
+      "@view/ui/theme.css": ["../../packages/ui/src/theme.css"],
+      "@view/view": ["../../packages/view-react/src/index.ts"]
     }
   },
   "include": ["web/src"]

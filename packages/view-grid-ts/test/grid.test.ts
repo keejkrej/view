@@ -1,20 +1,20 @@
 import { describe, expect, test } from "bun:test";
+
 import {
   applyGridWheelGesture,
-  autoContrast,
   buildBboxCsv,
   classifyGridWheelGesture,
   collectStrokeToggleCellIds,
+  countVisibleCells,
   createDefaultGrid,
   degreesToRadians,
-  estimateGridDraw,
   enumerateVisibleGridCells,
+  estimateGridDraw,
   findGridCellAtPoint,
-  getFrameContrastDomain,
   gridBasis,
   normalizeRadians,
   normalizeGridState,
-} from "../src/utils";
+} from "../src";
 
 describe("grid utils", () => {
   test("normalizes grid inputs", () => {
@@ -52,7 +52,6 @@ describe("grid utils", () => {
       {
         width: 1024,
         height: 1024,
-        pixels: new Uint16Array(1024 * 1024),
       },
       normalizeGridState({
         enabled: true,
@@ -68,31 +67,6 @@ describe("grid utils", () => {
     expect(ids.has("1:0")).toBe(true);
     expect(ids.has("0:1")).toBe(true);
     expect(ids.has("-1:0")).toBe(true);
-  });
-
-  test("finds useful contrast window", () => {
-    const values = new Uint16Array([0, 0, 5, 10, 15, 20, 30, 40, 1000, 65535]);
-    const contrast = autoContrast(values);
-    expect(contrast.min).toBeGreaterThanOrEqual(0);
-    expect(contrast.max).toBeGreaterThan(contrast.min);
-  });
-
-  test("uses full integer domain for contrast sliders", () => {
-    expect(
-      getFrameContrastDomain({
-        width: 1,
-        height: 1,
-        pixels: new Uint16Array([42]),
-      }),
-    ).toEqual({ min: 0, max: 65535 });
-
-    expect(
-      getFrameContrastDomain({
-        width: 1,
-        height: 1,
-        pixels: new Int16Array([-1]),
-      }),
-    ).toEqual({ min: -32768, max: 32767 });
   });
 
   test("default grid stays stable", () => {
@@ -211,7 +185,6 @@ describe("grid utils", () => {
       {
         width: 100,
         height: 100,
-        pixels: new Uint16Array(10000),
       },
       normalizeGridState({
         enabled: true,
@@ -232,7 +205,6 @@ describe("grid utils", () => {
       {
         width: 100,
         height: 100,
-        pixels: new Uint16Array(10000),
       },
       normalizeGridState({
         enabled: true,
@@ -256,7 +228,6 @@ describe("grid utils", () => {
     const frame = {
       width: 100,
       height: 100,
-      pixels: new Uint16Array(10000),
     };
     const grid = normalizeGridState({
       enabled: true,
@@ -275,7 +246,6 @@ describe("grid utils", () => {
     const frame = {
       width: 100,
       height: 100,
-      pixels: new Uint16Array(10000),
     };
     const grid = normalizeGridState({
       enabled: true,
@@ -296,12 +266,31 @@ describe("grid utils", () => {
     expect(Array.from(hitCellIds).sort()).toEqual(["-1:0", "0:0"]);
   });
 
+  test("counts included and excluded visible cells", () => {
+    const counts = countVisibleCells(
+      {
+        width: 100,
+        height: 100,
+      },
+      normalizeGridState({
+        enabled: true,
+        spacingA: 50,
+        spacingB: 50,
+        cellWidth: 50,
+        cellHeight: 50,
+      }),
+      new Set(["0:0"]),
+    );
+
+    expect(counts.included).toBeGreaterThan(0);
+    expect(counts.excluded).toBe(1);
+  });
+
   test("builds bbox csv and clips edge-touching cells", () => {
     const csv = buildBboxCsv(
       {
         width: 100,
         height: 100,
-        pixels: new Uint16Array(10000),
       },
       normalizeGridState({
         enabled: true,

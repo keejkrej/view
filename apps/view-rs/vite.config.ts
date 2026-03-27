@@ -11,9 +11,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@view/shared-ui/theme.css": resolve(__dirname, "../../packages/shared/ui/src/theme.css"),
-      "@view/shared-ui": resolve(__dirname, "../../packages/shared/ui/src/index.ts"),
-      "@view/view": resolve(__dirname, "../../packages/view/src/index.ts"),
+      "@view/grid": resolve(__dirname, "../../packages/view-grid-ts/src/index.ts"),
+      "@view/ui/theme.css": resolve(__dirname, "../../packages/ui/src/theme.css"),
+      "@view/ui": resolve(__dirname, "../../packages/ui/src/index.ts"),
+      "@view/view": resolve(__dirname, "../../packages/view-react/src/index.ts"),
     },
   },
   server: {

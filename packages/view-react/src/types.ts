@@ -1,3 +1,7 @@
+import type { GridState } from "@view/grid";
+
+export type { GridShape, GridState } from "@view/grid";
+
 export interface WorkspaceScan {
   positions: number[];
   channels: number[];
@@ -55,21 +59,6 @@ export interface FrameResult {
 export interface ViewerDataSource {
   scanSource(source: ViewerSource): Promise<WorkspaceScan>;
   loadFrame(source: ViewerSource, request: FrameRequest, options?: LoadFrameOptions): Promise<FrameResult>;
-}
-
-export type GridShape = "square" | "hex";
-
-export interface GridState {
-  enabled: boolean;
-  shape: GridShape;
-  tx: number;
-  ty: number;
-  rotation: number;
-  spacingA: number;
-  spacingB: number;
-  cellWidth: number;
-  cellHeight: number;
-  opacity: number;
 }
 
 export interface ViewerSelection {

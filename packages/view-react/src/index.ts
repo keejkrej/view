@@ -4,8 +4,6 @@ export type {
   PixelArray,
   PixelType,
   FrameResult,
-  GridShape,
-  GridState,
   LoadFrameOptions,
   Nd2Source,
   TifSource,
@@ -19,30 +17,43 @@ export type {
   ViewerSource,
   WorkspaceScan,
 } from "./types";
-export type { GridCellRect } from "./utils";
 export {
-  applyGridWheelGesture,
   autoContrast,
-  buildBboxCsv,
-  classifyGridWheelGesture,
-  clamp,
-  collectStrokeToggleCellIds,
   coerceSelection,
-  createDefaultGrid,
   createSelection,
-  degreesToRadians,
-  estimateGridDraw,
-  enumerateVisibleGridCells,
-  findGridCellAtPoint,
   getFrameContrastDomain,
-  gridBasis,
-  isTouchpadLikeGridWheelGesture,
   makeFrameKey,
   makeSourceKey,
-  normalizeRadians,
+} from "./utils";
+export type {
+  GridCellRect,
+  GridFrameBounds,
+  GridShape,
+  GridState,
+  GridWheelGestureInput,
+  GridWheelIntent,
+  GridWheelViewport,
+} from "@view/grid";
+export {
+  MAX_GRID_RECTS,
+  applyGridWheelGesture,
+  buildBboxCsv,
+  clamp,
+  classifyGridWheelGesture,
+  collectStrokeToggleCellIds,
+  countVisibleCells,
+  createDefaultGrid,
+  degreesToRadians,
+  enumerateVisibleGridCells,
+  estimateGridDraw,
+  findGridCellAtPoint,
+  gridBasis,
+  isTouchpadLikeGridWheelGesture,
+  minimumGridSpacing,
   normalizeGridState,
+  normalizeRadians,
   radiansToDegrees,
   toggleCellIds,
-} from "./utils";
+} from "@view/grid";
 export { default as ViewerCanvasSurface } from "./ViewerCanvasSurface";
 export { createWebSocketBackend } from "./ws";

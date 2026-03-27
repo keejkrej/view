@@ -1,4 +1,4 @@
-@import "@view/shared-ui/theme.css";
+@import "@view/ui/theme.css";
 
-@source "../../../../packages/shared/ui/src";
-@source "../../../../packages/view/src";
+@source "../../../../packages/ui/src";
+@source "../../../../packages/view-react/src";

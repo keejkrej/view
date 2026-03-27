@@ -1,4 +1,15 @@
 import {
+  applyGridWheelGesture,
+  clamp,
+  collectStrokeToggleCellIds,
+  degreesToRadians,
+  enumerateVisibleGridCells,
+  gridBasis,
+  normalizeGridState,
+  normalizeRadians,
+  toggleCellIds,
+} from "@view/grid";
+import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -13,17 +24,6 @@ import type {
   ViewerCanvasStatusTone,
   ViewerCanvasSurfaceProps,
 } from "./types";
-import {
-  applyGridWheelGesture,
-  clamp,
-  collectStrokeToggleCellIds,
-  degreesToRadians,
-  enumerateVisibleGridCells,
-  gridBasis,
-  normalizeGridState,
-  normalizeRadians,
-  toggleCellIds,
-} from "./utils";
 
 interface PreparedFrame {
   frame: FrameResult;

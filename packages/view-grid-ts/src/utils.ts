@@ -1,50 +1,19 @@
 import type {
-  FrameResult,
+  GridCellRect,
+  GridFrameBounds,
   GridShape,
   GridState,
-  PixelArray,
-  PixelType,
-  ViewerSelection,
-  ViewerSource,
-  WorkspaceScan,
+  GridWheelGestureInput,
+  GridWheelIntent,
+  GridWheelViewport,
 } from "./types";
 
 export const MAX_GRID_RECTS = 8000;
-const SAMPLE_SIZE = 2048;
 const LINE_DELTA_PX = 16;
 const PAGE_DELTA_PX = 320;
 const TOUCHPAD_STEP_THRESHOLD_PX = 48;
 const EXP_SCALE_FACTOR = 0.0015;
 const GRID_BOUNDS_EPSILON = 1e-6;
-
-export interface GridWheelGestureInput {
-  deltaMode: number;
-  deltaX: number;
-  deltaY: number;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-}
-
-export interface GridWheelViewport {
-  displayWidth: number;
-  displayHeight: number;
-  modelWidth: number;
-  modelHeight: number;
-}
-
-export interface GridCellRect {
-  id: string;
-  i: number;
-  j: number;
-  centerX: number;
-  centerY: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export type GridWheelIntent = "pan" | "rotate" | "size" | "spacing";
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -81,7 +50,7 @@ export function createDefaultGrid(): GridState {
   };
 }
 
-function minimumGridSpacing(cellWidth: number, cellHeight: number) {
+export function minimumGridSpacing(cellWidth: number, cellHeight: number): number {
   return Math.max(1, Math.min(cellWidth, cellHeight));
 }
 
@@ -102,29 +71,6 @@ export function normalizeGridState(input?: Partial<GridState>): GridState {
     cellWidth,
     cellHeight,
     opacity: clamp(input.opacity ?? base.opacity, 0, 1),
-  };
-}
-
-export function createSelection(scan: WorkspaceScan, initial?: Partial<ViewerSelection>): ViewerSelection {
-  return {
-    pos: initial?.pos ?? scan.positions[0] ?? 0,
-    channel: initial?.channel ?? scan.channels[0] ?? 0,
-    time: initial?.time ?? scan.times[0] ?? 0,
-    z: initial?.z ?? scan.zSlices[0] ?? 0,
-  };
-}
-
-export function coerceSelection(
-  scan: WorkspaceScan,
-  selection: ViewerSelection,
-): ViewerSelection {
-  return {
-    pos: scan.positions.includes(selection.pos) ? selection.pos : (scan.positions[0] ?? 0),
-    channel: scan.channels.includes(selection.channel)
-      ? selection.channel
-      : (scan.channels[0] ?? 0),
-    time: scan.times.includes(selection.time) ? selection.time : (scan.times[0] ?? 0),
-    z: scan.zSlices.includes(selection.z) ? selection.z : (scan.zSlices[0] ?? 0),
   };
 }
 
@@ -163,7 +109,7 @@ export function estimateGridDraw(
   };
 }
 
-function resolveVisibleGridIndexBounds(frame: FrameResult, grid: GridState) {
+function resolveVisibleGridIndexBounds(frame: GridFrameBounds, grid: GridState) {
   const basis = gridBasis(grid.shape, grid.rotation, grid.spacingA, grid.spacingB);
   const originX = frame.width / 2 + grid.tx;
   const originY = frame.height / 2 + grid.ty;
@@ -230,7 +176,7 @@ function intersectsFrame(cell: GridCellRect, frameWidth: number, frameHeight: nu
   );
 }
 
-export function enumerateVisibleGridCells(frame: FrameResult, grid: GridState): GridCellRect[] {
+export function enumerateVisibleGridCells(frame: GridFrameBounds, grid: GridState): GridCellRect[] {
   const { basis, originX, originY, halfWidth, halfHeight, iMin, iMax, jMin, jMax } =
     resolveVisibleGridIndexBounds(frame, grid);
   const cells: GridCellRect[] = [];
@@ -261,7 +207,7 @@ export function enumerateVisibleGridCells(frame: FrameResult, grid: GridState): 
 }
 
 export function findGridCellAtPoint(
-  frame: FrameResult,
+  frame: GridFrameBounds,
   grid: GridState,
   x: number,
   y: number,
@@ -286,7 +232,7 @@ export function findGridCellAtPoint(
 }
 
 export function collectStrokeToggleCellIds(
-  frame: FrameResult,
+  frame: GridFrameBounds,
   grid: GridState,
   startPoint: { x: number; y: number },
   endPoint: { x: number; y: number },
@@ -323,8 +269,22 @@ export function toggleCellIds(currentCellIds: Iterable<string>, cellIdsToToggle:
   return Array.from(activeCellIds).sort();
 }
 
+export function countVisibleCells(
+  frame: GridFrameBounds,
+  grid: GridState,
+  excludedCellIds?: Iterable<string>,
+): { included: number; excluded: number } {
+  const excluded = excludedCellIds ? new Set(excludedCellIds) : new Set<string>();
+  const cells = enumerateVisibleGridCells(frame, grid);
+  const excludedCount = cells.filter((cell) => excluded.has(cell.id)).length;
+  return {
+    included: cells.length - excludedCount,
+    excluded: excludedCount,
+  };
+}
+
 export function buildBboxCsv(
-  frame: FrameResult,
+  frame: GridFrameBounds,
   grid: GridState,
   excludedCellIds?: Iterable<string>,
 ): string {
@@ -349,73 +309,6 @@ export function buildBboxCsv(
   }
 
   return rows.join("\n");
-}
-
-function sampledValues(values: PixelArray): number[] {
-  if (values.length <= SAMPLE_SIZE) {
-    const copy = Array.from(values);
-    copy.sort((a, b) => a - b);
-    return copy;
-  }
-  const step = values.length / SAMPLE_SIZE;
-  const sample = new Array<number>(SAMPLE_SIZE);
-  for (let i = 0; i < SAMPLE_SIZE; i += 1) {
-    sample[i] = values[Math.floor(i * step)] ?? 0;
-  }
-  sample.sort((a, b) => a - b);
-  return sample;
-}
-
-export function percentile(values: PixelArray, q: number): number {
-  if (values.length === 0) return 0;
-  const sorted = sampledValues(values);
-  const clampedQ = clamp(q, 0, 1);
-  const index = Math.floor(clampedQ * (sorted.length - 1));
-  return sorted[index] ?? 0;
-}
-
-export function autoContrast(values: PixelArray) {
-  if (values.length === 0) {
-    return { min: 0, max: 1 };
-  }
-  const min = percentile(values, 0.001);
-  const max = percentile(values, 0.999);
-  return {
-    min,
-    max: Math.max(min + 1, max),
-  };
-}
-
-function inferPixelType(values: PixelArray): PixelType | null {
-  if (values instanceof Uint8Array) return "uint8";
-  if (values instanceof Uint8ClampedArray) return "uint8clamped";
-  if (values instanceof Int8Array) return "int8";
-  if (values instanceof Uint16Array) return "uint16";
-  if (values instanceof Int16Array) return "int16";
-  if (values instanceof Uint32Array) return "uint32";
-  if (values instanceof Int32Array) return "int32";
-  return null;
-}
-
-export function getFrameContrastDomain(frame: FrameResult) {
-  const pixelType = frame.pixelType ?? inferPixelType(frame.pixels);
-  switch (pixelType) {
-    case "uint8":
-    case "uint8clamped":
-      return { min: 0, max: 255 };
-    case "int8":
-      return { min: -128, max: 127 };
-    case "uint16":
-      return { min: 0, max: 65535 };
-    case "int16":
-      return { min: -32768, max: 32767 };
-    case "uint32":
-      return { min: 0, max: 4294967295 };
-    case "int32":
-      return { min: -2147483648, max: 2147483647 };
-    default:
-      return { min: 0, max: Math.max(1, Math.ceil(percentile(frame.pixels, 1))) };
-  }
 }
 
 export function radiansToDegrees(value: number): number {
@@ -505,12 +398,4 @@ export function applyGridWheelGesture(
     cellWidth: grid.cellWidth * factor,
     cellHeight: grid.cellHeight * factor,
   });
-}
-
-export function makeSourceKey(source: ViewerSource): string {
-  return `${source.kind}:${source.path}`;
-}
-
-export function makeFrameKey(source: ViewerSource, selection: ViewerSelection): string {
-  return `${makeSourceKey(source)}:${selection.pos}:${selection.channel}:${selection.time}:${selection.z}`;
 }

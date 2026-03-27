@@ -8,21 +8,24 @@ import { useShallow } from "zustand/react/shallow";
 import type {
   ContrastWindow,
   FrameResult,
-  GridShape,
   ViewerCanvasStatusMessage,
   ViewerBackend,
   ViewerSource,
 } from "@view/view";
 import {
   ViewerCanvasSurface,
-  buildBboxCsv,
-  clamp,
-  degreesToRadians,
-  enumerateVisibleGridCells,
   getFrameContrastDomain,
   makeFrameKey,
-  radiansToDegrees,
 } from "@view/view";
+import {
+  buildBboxCsv,
+  clamp,
+  countVisibleCells,
+  degreesToRadians,
+  enumerateVisibleGridCells,
+  radiansToDegrees,
+  type GridShape,
+} from "@view/grid";
 import {
   Button,
   Input,
@@ -32,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
   Slider,
-} from "@view/shared-ui";
+} from "@view/ui";
 
 import {
   IDLE_SAVE_STATE,
@@ -480,11 +483,12 @@ export default function ViewerWorkspace({
     () => (frame ? enumerateVisibleGridCells(frame, grid) : []),
     [frame, grid],
   );
-  const excludedVisibleCount = useMemo(
-    () => visibleCells.filter((cell) => activeExcludedCellIds.has(cell.id)).length,
-    [activeExcludedCellIds, visibleCells],
+  const visibleCellCounts = useMemo(
+    () => (frame ? countVisibleCells(frame, grid, activeExcludedCellIds) : { included: 0, excluded: 0 }),
+    [activeExcludedCellIds, frame, grid],
   );
-  const includedVisibleCount = visibleCells.length - excludedVisibleCount;
+  const excludedVisibleCount = visibleCellCounts.excluded;
+  const includedVisibleCount = visibleCellCounts.included;
 
   const messages = useMemo<ViewerCanvasStatusMessage[]>(() => {
     const next: ViewerCanvasStatusMessage[] = [];

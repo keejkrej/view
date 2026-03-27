@@ -5,19 +5,19 @@
   "packageManager": "bun@1.2.22",
   "workspaces": [
     "packages/*",
-    "packages/shared/*",
     "apps/*",
     "apps/*/web"
   ],
   "scripts": {
-    "build": "bun run build:view && bun run build:view-rs:web",
-    "build:view": "bun run --cwd packages/view build",
+    "build": "bun run build:grid && bun run build:view && bun run build:view-rs:web",
+    "build:grid": "bun run --cwd packages/view-grid-ts build",
+    "build:view": "bun run --cwd packages/view-react build",
     "build:view-rs:web": "bun run --cwd apps/view-rs build:renderer",
     "build:view-py:web": "bun run --cwd apps/view-py/web build",
     "check:tauri": "bun run --cwd apps/view-rs check:tauri",
     "dev": "bun run --cwd apps/view-rs dev",
     "dev:view-py:web": "bun run --cwd apps/view-py/web dev",
-    "test": "bun run --cwd packages/view test",
-    "typecheck": "bun run --cwd packages/view typecheck && bun run --cwd apps/view-rs typecheck && bun run --cwd apps/view-py/web typecheck"
+    "test": "bun run --cwd packages/view-grid-ts test && bun run --cwd packages/view-react test",
+    "typecheck": "bun run --cwd packages/view-grid-ts typecheck && bun run --cwd packages/view-react typecheck && bun run --cwd apps/view-rs typecheck && bun run --cwd apps/view-py/web typecheck"
   }
 }
