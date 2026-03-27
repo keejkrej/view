@@ -15,6 +15,7 @@
     "dist"
   ],
   "dependencies": {
+    "effect": "^3.21.0",
     "react": "^18.3.1"
   },
   "scripts": {

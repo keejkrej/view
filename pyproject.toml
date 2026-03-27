@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.27", "pathspec<1"]
+build-backend = "hatchling.build"
 
 [project]
 name = "view-root"
@@ -17,5 +17,5 @@ dependencies = [
 [project.scripts]
 view-py = "view_py_runner:main"
 
-[tool.setuptools]
-py-modules = ["view_py_runner"]
+[tool.hatch.build.targets.wheel]
+include = ["view_py_runner.py"]

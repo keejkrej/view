@@ -1,39 +1,27 @@
+import { Effect, Exit } from "effect";
 import { FolderOpen, X } from "lucide-react";
 import type { ChangeEvent } from "react";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 
 import type {
   ContrastWindow,
   FrameResult,
   GridShape,
-  GridState,
   ViewerCanvasStatusMessage,
   ViewerBackend,
-  ViewerSelection,
   ViewerSource,
-  WorkspaceScan,
 } from "@view/view";
 import {
   ViewerCanvasSurface,
   buildBboxCsv,
   clamp,
-  coerceSelection,
-  createDefaultGrid,
-  createSelection,
   degreesToRadians,
   enumerateVisibleGridCells,
   getFrameContrastDomain,
   makeFrameKey,
-  normalizeGridState,
   radiansToDegrees,
-  toggleCellIds,
 } from "@view/view";
 import {
   Button,
@@ -46,6 +34,28 @@ import {
   Slider,
 } from "@view/shared-ui";
 
+import {
+  IDLE_SAVE_STATE,
+  patchViewState,
+  reloadAutoContrast,
+  resetGrid,
+  setGrid,
+  setSaveState,
+  setSaving,
+  setSelectionKey,
+  setSelectionMode,
+  setTimeSliderIndex,
+  toggleExcludedCells,
+  toggleGridEnabled,
+  viewStore,
+} from "./viewStore";
+import {
+  loadFrameEffect,
+  saveBboxEffect,
+  scanSourceEffect,
+  toErrorMessage,
+} from "./viewEffects";
+
 type SelectValue = number | string;
 
 type Option<T extends SelectValue> = {
@@ -53,24 +63,12 @@ type Option<T extends SelectValue> = {
   value: T;
 };
 
-type ExcludedCellIdsByPosition = Record<number, string[]>;
-
-type SaveState =
-  | { type: "idle"; message: null }
-  | { type: "success"; message: string }
-  | { type: "error"; message: string };
-
-type ContrastMode = "auto" | "manual";
-
 interface ViewerWorkspaceProps {
+  workspacePath: string | null;
   source: ViewerSource | null;
   backend: ViewerBackend;
-  initialGrid?: Partial<GridState>;
-  initialSelection?: Partial<ViewerSelection>;
-  initialExcludedCellIdsByPosition?: ExcludedCellIdsByPosition;
-  onGridChange?: (grid: GridState) => void;
-  onExcludedCellIdsChange?: (next: ExcludedCellIdsByPosition) => void;
-  onOpenWorkspace: () => Promise<void>;
+  onPickWorkspace: () => Promise<void>;
+  onOpenTif: () => Promise<void>;
   onOpenNd2: () => Promise<void>;
   onClearSource: () => void;
 }
@@ -242,86 +240,95 @@ function contrastWindowForFrame(frame: FrameResult | null): ContrastWindow {
 }
 
 export default function ViewerWorkspace({
+  workspacePath,
   source,
   backend,
-  initialGrid,
-  initialSelection,
-  initialExcludedCellIdsByPosition,
-  onGridChange,
-  onExcludedCellIdsChange,
-  onOpenWorkspace,
+  onPickWorkspace,
+  onOpenTif,
   onOpenNd2,
   onClearSource,
 }: ViewerWorkspaceProps) {
   const frameCacheRef = useRef(new FrameCache());
-
-  const [scan, setScan] = useState<WorkspaceScan | null>(null);
-  const [selection, setSelection] = useState<ViewerSelection | null>(null);
-  const [grid, setGrid] = useState<GridState>(() => normalizeGridState(initialGrid));
-  const [frame, setFrame] = useState<FrameResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [contrastMin, setContrastMin] = useState(0);
-  const [contrastMax, setContrastMax] = useState(255);
-  const [contrastMode, setContrastMode] = useState<ContrastMode>("auto");
-  const [contrastReloadToken, setContrastReloadToken] = useState(0);
-  const [timeSliderIndex, setTimeSliderIndex] = useState(0);
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [excludedCellIdsByPosition, setExcludedCellIdsByPosition] = useState<ExcludedCellIdsByPosition>(
-    () => initialExcludedCellIdsByPosition ?? {},
+  const {
+    scan,
+    selection,
+    grid,
+    frame,
+    loading,
+    error,
+    contrastMin,
+    contrastMax,
+    contrastMode,
+    contrastReloadToken,
+    timeSliderIndex,
+    selectionMode,
+    excludedCellIdsByPosition,
+    saveState,
+    saving,
+  } = useStore(
+    viewStore,
+    useShallow((state) => ({
+      scan: state.scan,
+      selection: state.selection,
+      grid: state.grid,
+      frame: state.frame,
+      loading: state.loading,
+      error: state.error,
+      contrastMin: state.contrastMin,
+      contrastMax: state.contrastMax,
+      contrastMode: state.contrastMode,
+      contrastReloadToken: state.contrastReloadToken,
+      timeSliderIndex: state.timeSliderIndex,
+      selectionMode: state.selectionMode,
+      excludedCellIdsByPosition: state.excludedCellIdsByPosition,
+      saveState: state.saveState,
+      saving: state.saving,
+    })),
   );
-  const [saveState, setSaveState] = useState<SaveState>({ type: "idle", message: null });
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    onGridChange?.(grid);
-  }, [grid, onGridChange]);
+    if (!source) return;
 
-  useEffect(() => {
-    onExcludedCellIdsChange?.(excludedCellIdsByPosition);
-  }, [excludedCellIdsByPosition, onExcludedCellIdsChange]);
+    const abortController = new AbortController();
+    patchViewState({
+      loading: true,
+      error: null,
+      frame: null,
+      scan: null,
+      selection: null,
+      contrastMode: "auto",
+    });
 
-  useEffect(() => {
-    if (!source) {
-      setLoading(false);
-      setError(null);
-      setFrame(null);
-      setScan(null);
-      setSelection(null);
-      setContrastMode("auto");
-      setContrastMin(0);
-      setContrastMax(255);
-      setSelectionMode(false);
-      setSaveState({ type: "idle", message: null });
-      return;
-    }
+    const program = scanSourceEffect(backend, source).pipe(
+      Effect.tap(({ scan, selection }) =>
+        Effect.sync(() => {
+          patchViewState({ scan, selection });
+        }),
+      ),
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          patchViewState({ error: toErrorMessage(error) });
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          patchViewState({ loading: false });
+        }),
+      ),
+    );
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setFrame(null);
-    setScan(null);
-    setSelection(null);
-    setContrastMode("auto");
-
-    void (async () => {
-      try {
-        const nextScan = await backend.scanSource(source);
-        if (cancelled) return;
-        setScan(nextScan);
-        setSelection(coerceSelection(nextScan, createSelection(nextScan, initialSelection)));
-      } catch (nextError) {
-        if (cancelled) return;
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    void Effect.runPromiseExit(program, {
+      signal: abortController.signal,
+    }).then((exit) => {
+      if (!Exit.isFailure(exit)) return;
+      if (abortController.signal.aborted) return;
+      patchViewState({ error: toErrorMessage(exit.cause) });
+    });
 
     return () => {
-      cancelled = true;
+      abortController.abort();
     };
-  }, [backend, initialSelection, source]);
+  }, [backend, source]);
 
   const contrastRequestKey =
     contrastMode === "auto" ? `auto:${contrastReloadToken}` : `${contrastMin}:${contrastMax}`;
@@ -330,62 +337,81 @@ export default function ViewerWorkspace({
     if (!source || !selection) return;
 
     const cacheKey = `${makeFrameKey(source, selection)}:${contrastRequestKey}`;
-    const requestedContrast =
-      contrastMode === "manual" ? { min: contrastMin, max: contrastMax } : undefined;
 
     const applyLoadedFrame = (loaded: FrameResult) => {
       const domain = contrastWindowForFrame(loaded);
       const applied = loaded.appliedContrast ?? loaded.suggestedContrast ?? domain;
-      setContrastMin(clamp(Math.round(applied.min), domain.min, Math.max(domain.min, domain.max - 1)));
-      setContrastMax(clamp(Math.round(applied.max), Math.min(domain.min + 1, domain.max), domain.max));
-      setFrame(loaded);
+      patchViewState({
+        contrastMin: clamp(
+          Math.round(applied.min),
+          domain.min,
+          Math.max(domain.min, domain.max - 1),
+        ),
+        contrastMax: clamp(
+          Math.round(applied.max),
+          Math.min(domain.min + 1, domain.max),
+          domain.max,
+        ),
+        frame: loaded,
+      });
     };
 
     const cached = frameCacheRef.current.get(cacheKey);
     if (cached) {
-      setError(null);
+      patchViewState({ error: null });
       applyLoadedFrame(cached.frame);
       return;
     }
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const abortController = new AbortController();
+    patchViewState({ loading: true, error: null });
 
-    void (async () => {
-      try {
-        const loaded = await backend.loadFrame(
-          source,
-          selection,
-          requestedContrast ? { contrast: requestedContrast } : undefined,
-        );
-        if (cancelled) return;
-        frameCacheRef.current.set(cacheKey, { frame: loaded });
-        applyLoadedFrame(loaded);
-      } catch (nextError) {
-        if (cancelled) return;
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-        setFrame(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    const program = loadFrameEffect(backend, source, selection, {
+      mode: contrastMode,
+      min: contrastMin,
+      max: contrastMax,
+    }).pipe(
+      Effect.tap(({ frame: loadedFrame }) =>
+        Effect.sync(() => {
+          frameCacheRef.current.set(cacheKey, { frame: loadedFrame });
+        }),
+      ),
+      Effect.tap(({ frame: loadedFrame, contrastMin, contrastMax }) =>
+        Effect.sync(() => {
+          patchViewState({ contrastMin, contrastMax });
+          applyLoadedFrame(loadedFrame);
+        }),
+      ),
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          patchViewState({
+            error: toErrorMessage(error),
+            frame: null,
+          });
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          patchViewState({ loading: false });
+        }),
+      ),
+    );
+
+    void Effect.runPromiseExit(program, {
+      signal: abortController.signal,
+    }).then((exit) => {
+      if (!Exit.isFailure(exit)) return;
+      if (abortController.signal.aborted) return;
+      patchViewState({
+        error: toErrorMessage(exit.cause),
+        frame: null,
+      });
+    });
 
     return () => {
-      cancelled = true;
+      abortController.abort();
     };
-  }, [backend, contrastMax, contrastMin, contrastMode, contrastRequestKey, source, selection]);
-
-  const setSelectionKey = useCallback(
-    <K extends keyof ViewerSelection>(key: K, value: ViewerSelection[K]) => {
-      setSelection((current) => {
-        if (!current) return current;
-        return { ...current, [key]: value };
-      });
-      setSaveState({ type: "idle", message: null });
-    },
-    [],
-  );
+  }, [backend, contrastMax, contrastMin, contrastMode, contrastRequestKey, selection, source]);
 
   const hasScan = !!scan && scan.positions.length > 0;
   const controlsDisabled = !hasScan || !selection;
@@ -436,27 +462,6 @@ export default function ViewerWorkspace({
   );
   const includedVisibleCount = visibleCells.length - excludedVisibleCount;
 
-  const toggleExcludedCells = useCallback((position: number, cellIds: Iterable<string>) => {
-    setExcludedCellIdsByPosition((current) => {
-      const nextCellIds = toggleCellIds(current[position] ?? [], cellIds);
-      const currentCellIds = current[position] ?? [];
-      if (
-        nextCellIds.length === currentCellIds.length &&
-        nextCellIds.every((cellId, index) => cellId === currentCellIds[index])
-      ) {
-        return current;
-      }
-      const next = { ...current };
-      if (nextCellIds.length === 0) {
-        delete next[position];
-      } else {
-        next[position] = nextCellIds;
-      }
-      return next;
-    });
-    setSaveState({ type: "idle", message: null });
-  }, []);
-
   const messages = useMemo<ViewerCanvasStatusMessage[]>(() => {
     const next: ViewerCanvasStatusMessage[] = [];
     if (error) {
@@ -472,40 +477,45 @@ export default function ViewerWorkspace({
   }, [error, saveState]);
 
   const emptyText = useMemo(() => {
-    if (!source) return "Open a workspace or ND2 file to load frames";
+    if (!workspacePath) return "Select a workspace folder to save bbox CSVs";
+    if (!source) return "Select a TIF folder or ND2 file to load frames";
     if (scan && scan.positions.length === 0) {
-      return source.kind === "nd2" ? "No frames found in ND2 file" : "No frames found in workspace";
+      return source.kind === "nd2" ? "No frames found in ND2 file" : "No frames found in TIF folder";
     }
     return "No frame loaded";
-  }, [scan, source]);
+  }, [scan, source, workspacePath]);
 
   const handleSave = useCallback(async () => {
-    if (!source || !selection || !frame) return;
+    if (!workspacePath || !source || !selection || !frame) return;
 
     setSaving(true);
-    setSaveState({ type: "idle", message: null });
-    try {
-      const response = await backend.saveBbox(
+    setSaveState(IDLE_SAVE_STATE);
+    const exit = await Effect.runPromiseExit(
+      saveBboxEffect(backend, {
+        workspacePath,
         source,
-        selection.pos,
-        buildBboxCsv(frame, grid, activeExcludedCellIds),
-      );
+        pos: selection.pos,
+        csv: buildBboxCsv(frame, grid, activeExcludedCellIds),
+      }),
+    );
 
+    if (Exit.isSuccess(exit)) {
+      const response = exit.value;
       if (!response.ok) {
         setSaveState({ type: "error", message: response.error ?? "Failed to save bbox CSV" });
-        return;
+      } else {
+        setSaveState({ type: "success", message: `Saved bbox CSV for Pos${selection.pos}` });
       }
-
-      setSaveState({ type: "success", message: `Saved bbox CSV for Pos${selection.pos}` });
-    } catch (nextError) {
-      setSaveState({
-        type: "error",
-        message: nextError instanceof Error ? nextError.message : String(nextError),
-      });
-    } finally {
       setSaving(false);
+      return;
     }
-  }, [activeExcludedCellIds, backend, frame, grid, selection, source]);
+
+    setSaveState({
+      type: "error",
+      message: toErrorMessage(exit.cause),
+    });
+    setSaving(false);
+  }, [activeExcludedCellIds, backend, frame, grid, selection, source, workspacePath]);
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -513,13 +523,16 @@ export default function ViewerWorkspace({
         <header className="border-b border-border px-4 py-4 md:px-8">
           <div className="relative flex items-center gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={() => void onOpenWorkspace()}>
+              <Button size="sm" onClick={() => void onPickWorkspace()}>
                 <span className="inline-flex items-center gap-2">
                   <FolderOpen className="size-4" />
-                  Open Workspace
+                  Workspace
                 </span>
               </Button>
-              <Button size="sm" variant="outline" onClick={() => void onOpenNd2()}>
+              <Button size="sm" variant="outline" disabled={!workspacePath} onClick={() => void onOpenTif()}>
+                Open TIF
+              </Button>
+              <Button size="sm" variant="outline" disabled={!workspacePath} onClick={() => void onOpenNd2()}>
                 Open ND2
               </Button>
               {source ? (
@@ -532,9 +545,12 @@ export default function ViewerWorkspace({
               ) : null}
             </div>
 
-            <p className="pointer-events-none absolute left-1/2 max-w-[min(60vw,48rem)] -translate-x-1/2 truncate text-center text-sm text-muted-foreground">
-              {source?.path || "No source selected"}
-            </p>
+            <div className="pointer-events-none absolute left-1/2 flex max-w-[min(68vw,56rem)] -translate-x-1/2 flex-col text-center text-sm text-muted-foreground">
+              <p className="truncate">
+                {workspacePath ? `Workspace: ${workspacePath}` : "Workspace: not selected"}
+              </p>
+              <p className="truncate">{source ? `Source: ${source.path}` : "Source: not selected"}</p>
+            </div>
           </div>
         </header>
 
@@ -594,10 +610,7 @@ export default function ViewerWorkspace({
                     variant="outline"
                     disabled={!frame}
                     className="h-7 px-2.5 text-xs"
-                    onClick={() => {
-                      setContrastMode("auto");
-                      setContrastReloadToken((current) => current + 1);
-                    }}
+                    onClick={reloadAutoContrast}
                   >
                     Auto
                   </Button>
@@ -611,14 +624,14 @@ export default function ViewerWorkspace({
                     step={1}
                     disabled={!frame}
                     onChange={(value) => {
-                      setContrastMode("manual");
-                      setContrastMin(
-                        clamp(
+                      patchViewState({
+                        contrastMode: "manual",
+                        contrastMin: clamp(
                           Math.round(value),
                           contrastDomain.min,
                           Math.min(contrastMinSliderMax, contrastMax - 1),
                         ),
-                      );
+                      });
                     }}
                   />
                 </Field>
@@ -630,14 +643,14 @@ export default function ViewerWorkspace({
                     step={1}
                     disabled={!frame}
                     onChange={(value) => {
-                      setContrastMode("manual");
-                      setContrastMax(
-                        clamp(
+                      patchViewState({
+                        contrastMode: "manual",
+                        contrastMax: clamp(
                           Math.round(value),
                           Math.max(contrastMaxSliderMin, contrastMin + 1),
                           contrastDomain.max,
                         ),
-                      );
+                      });
                     }}
                   />
                 </Field>
@@ -647,7 +660,7 @@ export default function ViewerWorkspace({
             <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
               <div className="flex h-full min-h-0 flex-col overflow-hidden">
                 <div className="m-3 flex min-h-0 flex-1 overflow-hidden md:m-4 md:mt-3">
-                  <div className="flex min-h-0 h-full w-full flex-1 overflow-hidden rounded-2xl border border-border/60 bg-black/10">
+                  <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden rounded-2xl border border-border/60 bg-black/10">
                     <ViewerCanvasSurface
                       frame={frame}
                       grid={grid}
@@ -658,7 +671,7 @@ export default function ViewerWorkspace({
                       messages={messages}
                       onGridChange={(nextGrid) => {
                         setGrid(nextGrid);
-                        setSaveState({ type: "idle", message: null });
+                        setSaveState(IDLE_SAVE_STATE);
                       }}
                       onToggleCells={(cellIds) => {
                         if (!selection || cellIds.length === 0) return;
@@ -680,12 +693,7 @@ export default function ViewerWorkspace({
                       variant="outline"
                       className="h-7 px-2.5 text-xs"
                       disabled={controlsDisabled}
-                      onClick={() =>
-                        setGrid((current) => ({
-                          ...createDefaultGrid(),
-                          enabled: current.enabled,
-                        }))
-                      }
+                      onClick={resetGrid}
                     >
                       Reset
                     </Button>
@@ -694,9 +702,7 @@ export default function ViewerWorkspace({
                       variant={grid.enabled ? "default" : "outline"}
                       className="h-7 min-w-12 px-2.5 text-xs"
                       disabled={controlsDisabled}
-                      onClick={() =>
-                        setGrid((current) => ({ ...current, enabled: !current.enabled }))
-                      }
+                      onClick={toggleGridEnabled}
                     >
                       {grid.enabled ? "On" : "Off"}
                     </Button>
@@ -827,7 +833,7 @@ export default function ViewerWorkspace({
                       size="sm"
                       variant="outline"
                       className="h-7 px-2.5 text-xs"
-                      disabled={!frame || !selection || saving}
+                      disabled={!workspacePath || !frame || !selection || saving}
                       onClick={() => void handleSave()}
                     >
                       {saving ? "Saving..." : "Save"}

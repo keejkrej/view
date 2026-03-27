@@ -8,6 +8,7 @@ export type {
   GridState,
   LoadFrameOptions,
   Nd2Source,
+  TifSource,
   ViewerBackend,
   ViewerDataSource,
   SaveBboxResponse,
@@ -16,7 +17,6 @@ export type {
   ViewerCanvasSurfaceProps,
   ViewerSelection,
   ViewerSource,
-  WorkspaceSource,
   WorkspaceScan,
 } from "./types";
 export type { GridCellRect } from "./utils";

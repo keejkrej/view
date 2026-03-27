@@ -99,7 +99,7 @@ function normalizeHostState(next: HostCanvasState): SurfaceState {
     source:
       next.source &&
       typeof next.source === "object" &&
-      (next.source.kind === "workspace" || next.source.kind === "nd2") &&
+      (next.source.kind === "tif" || next.source.kind === "nd2") &&
       typeof next.source.path === "string" &&
       next.source.path
         ? { kind: next.source.kind, path: next.source.path }
@@ -127,7 +127,7 @@ function normalizeHostState(next: HostCanvasState): SurfaceState {
       : [],
     selectionMode: next.selectionMode === true,
     emptyText:
-      typeof next.emptyText === "string" ? next.emptyText : "Open a workspace or ND2 file to load frames",
+      typeof next.emptyText === "string" ? next.emptyText : "Select a workspace folder to save bbox CSVs",
     messages: normalizeMessages(next.messages),
   };
 }
@@ -161,7 +161,7 @@ export default function App() {
       grid: createDefaultGrid(),
       excludedCellIds: [],
       selectionMode: false,
-      emptyText: "Open a workspace or ND2 file to load frames",
+      emptyText: "Select a workspace folder to save bbox CSVs",
       messages: [],
     }),
   );

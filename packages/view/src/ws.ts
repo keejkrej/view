@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 import type {
   FrameRequest,
   FrameResult,
@@ -38,6 +40,13 @@ interface WebSocketBackendOptions {
   url: string;
 }
 
+function toError(error: unknown, fallback: string): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(typeof error === "string" && error.length > 0 ? error : fallback);
+}
+
 function decodeBase64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -67,7 +76,7 @@ class WebSocketBackend implements ViewerBackend {
   }
 
   async scanSource(source: ViewerSource): Promise<WorkspaceScan> {
-    return this.request<WorkspaceScan>("scan_source", { source });
+    return Effect.runPromise(this.requestEffect<WorkspaceScan>("scan_source", { source }));
   }
 
   async loadFrame(
@@ -75,11 +84,13 @@ class WebSocketBackend implements ViewerBackend {
     request: FrameRequest,
     options?: LoadFrameOptions,
   ): Promise<FrameResult> {
-    const payload = await this.request<FramePayload>("load_frame", {
-      source,
-      request,
-      contrast: options?.contrast ?? null,
-    });
+    const payload = await Effect.runPromise(
+      this.requestEffect<FramePayload>("load_frame", {
+        source,
+        request,
+        contrast: options?.contrast ?? null,
+      }),
+    );
     return {
       width: payload.width,
       height: payload.height,
@@ -91,46 +102,80 @@ class WebSocketBackend implements ViewerBackend {
     };
   }
 
-  async saveBbox(source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse> {
-    return this.request<SaveBboxResponse>("save_bbox", { source, pos, csv });
+  async saveBbox(
+    workspacePath: string,
+    source: ViewerSource,
+    pos: number,
+    csv: string,
+  ): Promise<SaveBboxResponse> {
+    return Effect.runPromise(
+      this.requestEffect<SaveBboxResponse>("save_bbox", { workspacePath, source, pos, csv }),
+    );
   }
 
-  private async request<T>(type: string, payload: unknown): Promise<T> {
-    const socket = await this.ensureSocket();
-    const id = `${Date.now()}-${this.nextId++}`;
-    const body: RequestEnvelope = { id, type, payload };
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
+  private requestEffect<T>(type: string, payload: unknown) {
+    return Effect.tryPromise({
+      try: async (signal) => {
+        const socket = await this.ensureSocket();
+        const id = `${Date.now()}-${this.nextId++}`;
+        const body: RequestEnvelope = { id, type, payload };
+
+        return await new Promise<T>((resolve, reject) => {
+          const cleanup = () => {
+            signal.removeEventListener("abort", onAbort);
+            this.pending.delete(id);
+          };
+
+          const onAbort = () => {
+            cleanup();
+            reject(new DOMException(`Request ${type} aborted`, "AbortError"));
+          };
+
+          signal.addEventListener("abort", onAbort, { once: true });
+          this.pending.set(id, {
+            resolve: (value) => {
+              cleanup();
+              resolve(value as T);
+            },
+            reject: (error) => {
+              cleanup();
+              reject(error);
+            },
+          });
+
+          try {
+            socket.send(JSON.stringify(body));
+          } catch (error) {
+            cleanup();
+            reject(toError(error, `Failed to send ${type} request`));
+          }
+        });
+      },
+      catch: (error) => toError(error, `Request ${type} failed`),
+    }).pipe(Effect.withSpan(`viewer.ws.${type}`));
+  }
+
+  private ensureSocket(): Promise<WebSocket> {
+    if (!this.socketPromise) {
+      this.socketPromise = new Promise<WebSocket>((resolve, reject) => {
+        const socket = new WebSocket(this.url);
+        socket.addEventListener("open", () => resolve(socket), { once: true });
+        socket.addEventListener(
+          "error",
+          () => reject(new Error(`Failed to connect to ${this.url}`)),
+          { once: true },
+        );
+        socket.addEventListener("message", (event) => this.handleMessage(event));
+        socket.addEventListener("close", () => {
+          this.socketPromise = null;
+          const error = new Error(`WebSocket connection to ${this.url} closed`);
+          for (const { reject: pendingReject } of this.pending.values()) {
+            pendingReject(error);
+          }
+          this.pending.clear();
+        });
       });
-      socket.send(JSON.stringify(body));
-    });
-  }
-
-  private async ensureSocket(): Promise<WebSocket> {
-    if (this.socketPromise) {
-      return this.socketPromise;
     }
-
-    this.socketPromise = new Promise<WebSocket>((resolve, reject) => {
-      const socket = new WebSocket(this.url);
-      socket.addEventListener("open", () => resolve(socket), { once: true });
-      socket.addEventListener(
-        "error",
-        () => reject(new Error(`Failed to connect to ${this.url}`)),
-        { once: true },
-      );
-      socket.addEventListener("message", (event) => this.handleMessage(event));
-      socket.addEventListener("close", () => {
-        this.socketPromise = null;
-        const error = new Error(`WebSocket connection to ${this.url} closed`);
-        for (const { reject: pendingReject } of this.pending.values()) {
-          pendingReject(error);
-        }
-        this.pending.clear();
-      });
-    });
 
     return this.socketPromise;
   }

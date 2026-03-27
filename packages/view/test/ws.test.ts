@@ -47,7 +47,7 @@ afterEach(() => {
 describe("websocket backend", () => {
   test("resolves scan requests from websocket responses", async () => {
     const backend = createWebSocketBackend({ url: "ws://example.test" });
-    const promise = backend.scanSource({ kind: "workspace", path: "/tmp/workspace" });
+    const promise = backend.scanSource({ kind: "tif", path: "/tmp/workspace" });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -80,7 +80,12 @@ describe("websocket backend", () => {
 
   test("rejects backend error payloads", async () => {
     const backend = createWebSocketBackend({ url: "ws://example.test" });
-    const promise = backend.saveBbox({ kind: "workspace", path: "/tmp/workspace" }, 7, "crop,x,y,w,h");
+    const promise = backend.saveBbox(
+      "/tmp/workspace",
+      { kind: "tif", path: "/tmp/workspace/images" },
+      7,
+      "crop,x,y,w,h",
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 

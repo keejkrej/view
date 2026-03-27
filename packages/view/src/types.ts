@@ -5,8 +5,8 @@ export interface WorkspaceScan {
   zSlices: number[];
 }
 
-export interface WorkspaceSource {
-  kind: "workspace";
+export interface TifSource {
+  kind: "tif";
   path: string;
 }
 
@@ -15,7 +15,7 @@ export interface Nd2Source {
   path: string;
 }
 
-export type ViewerSource = WorkspaceSource | Nd2Source;
+export type ViewerSource = TifSource | Nd2Source;
 
 export type PixelType =
   | "uint8"
@@ -101,7 +101,7 @@ export interface SaveBboxResponse {
 }
 
 export interface ViewerBackend extends ViewerDataSource {
-  saveBbox(source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
+  saveBbox(workspacePath: string, source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
 }
 
 export interface ViewerCanvasSurfaceProps {

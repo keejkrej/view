@@ -9,6 +9,11 @@ Shared viewer frontend with two thin desktop wrapper families:
 
 `@view/view` no longer owns a packaged app shell or package-level CSS. The Tauri renderer now owns its controls/state locally and composes `ViewerCanvasSurface`, matching the PySide split where the host shell routes actions into the shared surface.
 
+Current desktop flow:
+
+- Select a workspace folder first. Bbox CSVs are written to `workspace/bbox/Pos{n}.csv`.
+- Then open either a TIFF folder containing `Pos{n}` subfolders or an ND2 file.
+
 ## Development
 
 Tauri wrapper:

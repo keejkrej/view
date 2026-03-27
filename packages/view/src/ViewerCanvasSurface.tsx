@@ -144,7 +144,7 @@ export default function ViewerCanvasSurface({
   messages,
   className,
   onGridChange,
-  onExcludeCells,
+  onToggleCells,
 }: ViewerCanvasSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -333,7 +333,7 @@ export default function ViewerCanvasSurface({
       activeFrame: FrameResult,
       activeGrid: GridState,
     ) => {
-      if (!onExcludeCells) return;
+      if (!onToggleCells) return;
 
       const sampleDistance = Math.max(4, Math.min(activeGrid.cellWidth, activeGrid.cellHeight) / 4);
       const distance = Math.hypot(endPoint.x - startPoint.x, endPoint.y - startPoint.y);
@@ -351,10 +351,10 @@ export default function ViewerCanvasSurface({
       }
 
       if (hitCellIds.size > 0) {
-        onExcludeCells(Array.from(hitCellIds));
+        onToggleCells(Array.from(hitCellIds));
       }
     },
-    [onExcludeCells],
+    [onToggleCells],
   );
 
   const beginDrag = useCallback(
@@ -475,7 +475,7 @@ export default function ViewerCanvasSurface({
 
   const handleCanvasPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode && event.button === 0 && frame && onExcludeCells) {
+      if (selectionMode && event.button === 0 && frame && onToggleCells) {
         const point = getFramePoint(event);
         if (!point) {
           event.preventDefault();
@@ -499,7 +499,7 @@ export default function ViewerCanvasSurface({
 
       beginDrag(event);
     },
-    [beginDrag, excludeCellsAlongStroke, frame, getFramePoint, onExcludeCells, selectionMode],
+    [beginDrag, excludeCellsAlongStroke, frame, getFramePoint, onToggleCells, selectionMode],
   );
 
   const handleCanvasPointerMove = useCallback(
