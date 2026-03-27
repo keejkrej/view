@@ -749,15 +749,6 @@ export default function ViewerWorkspace({
                       size="sm"
                       variant="outline"
                       className="h-7 px-2.5 text-xs"
-                      disabled={!frame || !selection}
-                      onClick={handleExcludeEdgeBboxes}
-                    >
-                      Disable Edge
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-xs"
                       disabled={controlsDisabled}
                       onClick={resetGrid}
                     >
@@ -897,6 +888,15 @@ export default function ViewerWorkspace({
                 title="Select"
                 action={
                   <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-xs"
+                      disabled={!frame || !selection}
+                      onClick={handleExcludeEdgeBboxes}
+                    >
+                      Disable Edge
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
