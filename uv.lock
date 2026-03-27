@@ -528,6 +528,11 @@ wheels = [
 ]
 
 [[package]]
+name = "view-grid-py"
+version = "0.1.0"
+source = { editable = "packages/view-grid-py" }
+
+[[package]]
 name = "view-root"
 version = "0.1.0"
 source = { editable = "." }
@@ -536,6 +541,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pyside6" },
     { name = "tifffile" },
+    { name = "view-grid-py" },
     { name = "websockets" },
 ]
 
@@ -545,6 +551,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "pyside6", specifier = ">=6.7.0" },
     { name = "tifffile", specifier = ">=2025.1.10" },
+    { name = "view-grid-py", editable = "packages/view-grid-py" },
     { name = "websockets", specifier = ">=15.0.0" },
 ]
 

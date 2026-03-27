@@ -39,13 +39,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from websockets.asyncio.server import serve
+from view_grid import (
+    GridCellRect,
+    build_bbox_csv,
+    count_visible_cells,
+    create_default_grid,
+    minimum_grid_spacing,
+    normalize_grid_state,
+)
 
 TIFF_PATTERN = re.compile(
     r"^img_channel(?P<channel>\d+)_position(?P<position>\d+)_time(?P<time>\d+)_z(?P<z>\d+)\.tiff?$",
     re.IGNORECASE,
 )
 SAMPLE_SIZE = 2048
-MAX_GRID_RECTS = 8000
 BACKEND_HOST = "127.0.0.1"
 HERE = Path(__file__).resolve().parent
 ICON_PATH = HERE / "icons" / "icon.png"
@@ -59,59 +66,8 @@ class ParsedTiffName:
     z: int
 
 
-@dataclass(frozen=True)
-class GridCellRect:
-    id: str
-    x: float
-    y: float
-    width: float
-    height: float
-
-
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return min(maximum, max(minimum, value))
-
-
-def create_default_grid() -> dict[str, Any]:
-    return {
-        "enabled": False,
-        "shape": "square",
-        "tx": 0.0,
-        "ty": 0.0,
-        "rotation": 0.0,
-        "spacingA": 325.0,
-        "spacingB": 325.0,
-        "cellWidth": 200.0,
-        "cellHeight": 200.0,
-        "opacity": 0.35,
-    }
-
-
-def minimum_grid_spacing(cell_width: float, cell_height: float) -> float:
-    return max(1.0, min(cell_width, cell_height))
-
-
-def normalize_grid_state(input_grid: dict[str, Any] | None = None) -> dict[str, Any]:
-    base = create_default_grid()
-    if input_grid is None:
-        return base
-
-    shape = str(input_grid.get("shape", base["shape"]))
-    cell_width = max(1.0, float(input_grid.get("cellWidth", base["cellWidth"])))
-    cell_height = max(1.0, float(input_grid.get("cellHeight", base["cellHeight"])))
-    min_spacing = minimum_grid_spacing(cell_width, cell_height)
-    return {
-        "enabled": bool(input_grid.get("enabled", base["enabled"])),
-        "shape": shape if shape in {"square", "hex"} else base["shape"],
-        "tx": float(input_grid.get("tx", base["tx"])),
-        "ty": float(input_grid.get("ty", base["ty"])),
-        "rotation": float(input_grid.get("rotation", base["rotation"])),
-        "spacingA": max(min_spacing, float(input_grid.get("spacingA", base["spacingA"]))),
-        "spacingB": max(min_spacing, float(input_grid.get("spacingB", base["spacingB"]))),
-        "cellWidth": cell_width,
-        "cellHeight": cell_height,
-        "opacity": clamp(float(input_grid.get("opacity", base["opacity"])), 0.0, 1.0),
-    }
 
 
 def parse_pos_dir_name(name: str) -> int | None:
@@ -393,140 +349,6 @@ def save_bbox_for_source(workspace_path: str, source: dict[str, str], pos: int, 
         return {"ok": True}
     except OSError as error:
         return {"ok": False, "error": str(error)}
-
-
-def grid_basis(shape: str, rotation: float, spacing_a: float, spacing_b: float) -> tuple[tuple[float, float], tuple[float, float]]:
-    second_angle = rotation + (math.pi / 2 if shape == "square" else math.pi / 3)
-    return (
-        (math.cos(rotation) * spacing_a, math.sin(rotation) * spacing_a),
-        (math.cos(second_angle) * spacing_b, math.sin(second_angle) * spacing_b),
-    )
-
-
-def estimate_grid_draw(width: int, height: int, spacing_a: float, spacing_b: float, _max_rects: int = MAX_GRID_RECTS) -> tuple[int, int]:
-    min_spacing = max(1.0, min(spacing_a, spacing_b))
-    estimated_columns = math.ceil(width / min_spacing) + 3
-    estimated_rows = math.ceil(height / min_spacing) + 3
-    value_range = max(estimated_columns, estimated_rows)
-    stride = 1
-    return value_range, stride
-
-
-def resolve_visible_grid_index_bounds(
-    frame_width: int,
-    frame_height: int,
-    grid: dict[str, Any],
-) -> tuple[tuple[float, float], tuple[float, float], float, float, float, float, int, int, int, int]:
-    (ax, ay), (bx, by) = grid_basis(
-        grid["shape"],
-        grid["rotation"],
-        grid["spacingA"],
-        grid["spacingB"],
-    )
-    origin_x = frame_width / 2 + grid["tx"]
-    origin_y = frame_height / 2 + grid["ty"]
-    half_width = grid["cellWidth"] / 2
-    half_height = grid["cellHeight"] / 2
-    determinant = ax * by - ay * bx
-
-    if abs(determinant) <= 1e-6:
-        value_range, _stride = estimate_grid_draw(frame_width, frame_height, grid["spacingA"], grid["spacingB"])
-        return (
-            (ax, ay),
-            (bx, by),
-            origin_x,
-            origin_y,
-            half_width,
-            half_height,
-            -value_range,
-            value_range,
-            -value_range,
-            value_range,
-        )
-
-    corners = (
-        (-half_width, -half_height),
-        (frame_width + half_width, -half_height),
-        (-half_width, frame_height + half_height),
-        (frame_width + half_width, frame_height + half_height),
-    )
-    i_values: list[float] = []
-    j_values: list[float] = []
-
-    for corner_x, corner_y in corners:
-        dx = corner_x - origin_x
-        dy = corner_y - origin_y
-        i_values.append((dx * by - dy * bx) / determinant)
-        j_values.append((dy * ax - dx * ay) / determinant)
-
-    return (
-        (ax, ay),
-        (bx, by),
-        origin_x,
-        origin_y,
-        half_width,
-        half_height,
-        math.floor(min(i_values) - 1e-6),
-        math.ceil(max(i_values) + 1e-6),
-        math.floor(min(j_values) - 1e-6),
-        math.ceil(max(j_values) + 1e-6),
-    )
-
-
-def enumerate_visible_grid_cells(frame_width: int, frame_height: int, grid: dict[str, Any]) -> list[GridCellRect]:
-    (ax, ay), (bx, by), origin_x, origin_y, half_width, half_height, i_min, i_max, j_min, j_max = (
-        resolve_visible_grid_index_bounds(frame_width, frame_height, grid)
-    )
-    cells: list[GridCellRect] = []
-
-    for i in range(i_min, i_max + 1):
-        for j in range(j_min, j_max + 1):
-            center_x = origin_x + i * ax + j * bx
-            center_y = origin_y + i * ay + j * by
-            cell = GridCellRect(
-                id=f"{i}:{j}",
-                x=center_x - half_width,
-                y=center_y - half_height,
-                width=grid["cellWidth"],
-                height=grid["cellHeight"],
-            )
-            if (
-                cell.x + cell.width >= 0
-                and cell.y + cell.height >= 0
-                and cell.x <= frame_width
-                and cell.y <= frame_height
-            ):
-                cells.append(cell)
-
-    return cells
-
-
-def build_bbox_csv(frame_width: int, frame_height: int, grid: dict[str, Any], excluded_cell_ids: set[str]) -> str:
-    rows = ["crop,x,y,w,h"]
-    crop = 0
-    for cell in enumerate_visible_grid_cells(frame_width, frame_height, grid):
-        if cell.id in excluded_cell_ids:
-            continue
-
-        clipped_x = int(clamp(round(cell.x), 0, frame_width))
-        clipped_y = int(clamp(round(cell.y), 0, frame_height))
-        clipped_right = int(clamp(round(cell.x + cell.width), 0, frame_width))
-        clipped_bottom = int(clamp(round(cell.y + cell.height), 0, frame_height))
-        clipped_width = clipped_right - clipped_x
-        clipped_height = clipped_bottom - clipped_y
-        if clipped_width <= 0 or clipped_height <= 0:
-            continue
-
-        rows.append(f"{crop},{clipped_x},{clipped_y},{clipped_width},{clipped_height}")
-        crop += 1
-
-    return "\n".join(rows)
-
-
-def count_visible_cells(frame_width: int, frame_height: int, grid: dict[str, Any], excluded_cell_ids: set[str]) -> tuple[int, int]:
-    cells = enumerate_visible_grid_cells(frame_width, frame_height, grid)
-    excluded_count = sum(1 for cell in cells if cell.id in excluded_cell_ids)
-    return len(cells) - excluded_count, excluded_count
 
 
 class LocalBackend:
