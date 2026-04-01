@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 
 import type {
+  CropOutputFormat,
+  CropRoiResponse,
   FrameRequest,
   FrameResult,
   LoadFrameOptions,
@@ -110,6 +112,17 @@ class WebSocketBackend implements ViewerBackend {
   ): Promise<SaveBboxResponse> {
     return Effect.runPromise(
       this.requestEffect<SaveBboxResponse>("save_bbox", { workspacePath, source, pos, csv }),
+    );
+  }
+
+  async cropRoi(
+    workspacePath: string,
+    source: ViewerSource,
+    pos: number,
+    format: CropOutputFormat,
+  ): Promise<CropRoiResponse> {
+    return Effect.runPromise(
+      this.requestEffect<CropRoiResponse>("crop_roi", { workspacePath, source, pos, format }),
     );
   }
 

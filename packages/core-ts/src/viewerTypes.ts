@@ -89,8 +89,22 @@ export interface SaveBboxResponse {
   error?: string;
 }
 
+export type CropOutputFormat = "tiff";
+
+export interface CropRoiResponse {
+  ok: boolean;
+  error?: string;
+  outputPath?: string;
+}
+
 export interface ViewerBackend extends ViewerDataSource {
   saveBbox(workspacePath: string, source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
+  cropRoi(
+    workspacePath: string,
+    source: ViewerSource,
+    pos: number,
+    format: CropOutputFormat,
+  ): Promise<CropRoiResponse>;
 }
 
 export type ExcludedCellIdsByPosition = Record<number, string[]>;

@@ -44,6 +44,8 @@ import {
   patchViewState,
   reloadAutoContrast,
   resetGrid,
+  setCropState,
+  setCropping,
   setGrid,
   setSaveState,
   setSaving,
@@ -55,6 +57,7 @@ import {
   viewStore,
 } from "./viewStore";
 import {
+  cropRoiEffect,
   loadFrameEffect,
   saveBboxEffect,
   scanSourceEffect,
@@ -280,6 +283,8 @@ export default function ViewerWorkspace({
     excludedCellIdsByPosition,
     saveState,
     saving,
+    cropState,
+    cropping,
   } = useStore(
     viewStore,
     useShallow((state) => ({
@@ -298,6 +303,8 @@ export default function ViewerWorkspace({
       excludedCellIdsByPosition: state.excludedCellIdsByPosition,
       saveState: state.saveState,
       saving: state.saving,
+      cropState: state.cropState,
+      cropping: state.cropping,
     })),
   );
 
@@ -503,8 +510,14 @@ export default function ViewerWorkspace({
         text: saveState.message,
       });
     }
+    if (cropState.message) {
+      next.push({
+        tone: cropState.type === "error" ? "error" : "success",
+        text: cropState.message,
+      });
+    }
     return next;
-  }, [error, saveState]);
+  }, [cropState, error, saveState]);
 
   const emptyText = useMemo(() => {
     if (!workspacePath) return "Select a workspace folder to save bbox CSVs";
@@ -553,6 +566,50 @@ export default function ViewerWorkspace({
     if (edgeCellIds.length === 0) return;
     excludeCells(selection.pos, edgeCellIds);
   }, [frame, grid, selection]);
+
+  const handleCrop = useCallback(async () => {
+    if (!workspacePath || !source || !selection) return;
+
+    setCropping(true);
+    setCropState(IDLE_SAVE_STATE);
+    const exit = await Effect.runPromiseExit(
+      cropRoiEffect(backend, {
+        workspacePath,
+        source,
+        pos: selection.pos,
+      }),
+    );
+
+    if (Exit.isSuccess(exit)) {
+      const response = exit.value;
+      if (!response.ok) {
+        setCropState({ type: "error", message: response.error ?? "Failed to crop ROI TIFFs" });
+      } else {
+        setCropState({
+          type: "success",
+          message: `Cropped ROI TIFFs for Pos${selection.pos}`,
+        });
+      }
+      setCropping(false);
+      return;
+    }
+
+    setCropState({
+      type: "error",
+      message: toErrorMessage(exit.cause),
+    });
+    setCropping(false);
+  }, [backend, selection, source, workspacePath]);
+
+  const bboxPath = useMemo(() => {
+    if (!selection) return "bbox/Pos{n}.csv";
+    return `bbox/Pos${selection.pos}.csv`;
+  }, [selection]);
+
+  const roiPath = useMemo(() => {
+    if (!selection) return "roi/Pos{n}/Roi{m}.tif";
+    return `roi/Pos${selection.pos}/Roi{m}.tif`;
+  }, [selection]);
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -899,15 +956,6 @@ export default function ViewerWorkspace({
                     </Button>
                     <Button
                       size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-xs"
-                      disabled={!workspacePath || !frame || !selection || saving}
-                      onClick={() => void handleSave()}
-                    >
-                      {saving ? "Saving..." : "Save"}
-                    </Button>
-                    <Button
-                      size="sm"
                       variant={selectionMode ? "default" : "outline"}
                       className="h-7 min-w-12 px-2.5 text-xs"
                       disabled={controlsDisabled || !frame || !grid.enabled}
@@ -929,6 +977,39 @@ export default function ViewerWorkspace({
                       {excludedVisibleCount}
                     </div>
                   </Field>
+                </div>
+              </PanelCard>
+
+              <PanelCard title="Data">
+                <Field label="BBox CSV">
+                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                    {bboxPath}
+                  </div>
+                </Field>
+                <Field label="ROI Output">
+                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                    {roiPath}
+                  </div>
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    disabled={!workspacePath || !frame || !selection || saving || cropping}
+                    onClick={() => void handleSave()}
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    disabled={!workspacePath || !source || !selection || saving || cropping}
+                    onClick={() => void handleCrop()}
+                  >
+                    {cropping ? "Cropping..." : "Crop"}
+                  </Button>
                 </div>
               </PanelCard>
             </aside>

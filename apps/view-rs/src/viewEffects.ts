@@ -113,3 +113,21 @@ export function saveBboxEffect(
     catch: (error) => toError(error, "Failed to save bbox CSV"),
   }).pipe(Effect.withSpan("viewer.save-bbox"));
 }
+
+export function cropRoiEffect(
+  backend: ViewerBackend,
+  {
+    workspacePath,
+    source,
+    pos,
+  }: {
+    workspacePath: string;
+    source: ViewerSource;
+    pos: number;
+  },
+) {
+  return Effect.tryPromise({
+    try: () => backend.cropRoi(workspacePath, source, pos, "tiff"),
+    catch: (error) => toError(error, "Failed to crop ROI TIFFs"),
+  }).pipe(Effect.withSpan("viewer.crop-roi"));
+}

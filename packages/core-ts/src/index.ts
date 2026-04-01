@@ -31,6 +31,8 @@ export {
 } from "./utils";
 export type {
   ContrastWindow,
+  CropOutputFormat,
+  CropRoiResponse,
   ExcludedCellIdsByPosition,
   FrameRequest,
   FrameResult,

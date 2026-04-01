@@ -31,6 +31,8 @@ export type SaveState =
   | { type: "success"; message: string }
   | { type: "error"; message: string };
 
+export type CropState = SaveState;
+
 export type ContrastMode = "auto" | "manual";
 const DEFAULT_CONTRAST_MIN = 0;
 const DEFAULT_CONTRAST_MAX = 65535;
@@ -63,6 +65,8 @@ export interface ViewStoreState {
   excludedCellIdsByPosition: ExcludedCellIdsByPosition;
   saveState: SaveState;
   saving: boolean;
+  cropState: CropState;
+  cropping: boolean;
 }
 
 export const IDLE_SAVE_STATE: SaveState = { type: "idle", message: null };
@@ -273,6 +277,8 @@ function resetViewerState(
     selectionMode: false,
     saveState: IDLE_SAVE_STATE,
     saving: false,
+    cropState: IDLE_SAVE_STATE,
+    cropping: false,
     ...overrides,
   };
 }
@@ -304,6 +310,8 @@ function createInitialState(): ViewStoreState {
         excludedCellIdsByPosition: readStoredExcludedCellIds(storage, source),
         saveState: IDLE_SAVE_STATE,
         saving: false,
+        cropState: IDLE_SAVE_STATE,
+        cropping: false,
       } satisfies ViewStoreState;
     }).pipe(Effect.withSpan("view-store.create-initial-state")),
   );
@@ -396,6 +404,14 @@ export function setSaveState(saveState: SaveState) {
 
 export function setSaving(saving: boolean) {
   viewStore.setState((state) => ({ ...state, saving }));
+}
+
+export function setCropState(cropState: CropState) {
+  viewStore.setState((state) => ({ ...state, cropState }));
+}
+
+export function setCropping(cropping: boolean) {
+  viewStore.setState((state) => ({ ...state, cropping }));
 }
 
 export function reloadAutoContrast() {

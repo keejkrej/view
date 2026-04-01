@@ -105,4 +105,45 @@ describe("websocket backend", () => {
 
     await expect(promise).rejects.toThrow("save failed");
   });
+
+  test("sends crop requests with the selected output format", async () => {
+    const backend = createWebSocketBackend({ url: "ws://example.test" });
+    const promise = backend.cropRoi(
+      "/tmp/workspace",
+      { kind: "tif", path: "/tmp/workspace/images" },
+      3,
+      "tiff",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const socket = FakeWebSocket.instance;
+    expect(socket).not.toBeNull();
+    const sent = JSON.parse(socket!.sent[0] ?? "{}") as {
+      id: string;
+      type: string;
+      payload: { workspacePath: string; pos: number; format: string };
+    };
+
+    expect(sent.type).toBe("crop_roi");
+    expect(sent.payload.workspacePath).toBe("/tmp/workspace");
+    expect(sent.payload.pos).toBe(3);
+    expect(sent.payload.format).toBe("tiff");
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "crop_roi_result",
+        payload: {
+          ok: true,
+          outputPath: "/tmp/workspace/roi/Pos3",
+        },
+      }),
+    });
+
+    await expect(promise).resolves.toEqual({
+      ok: true,
+      outputPath: "/tmp/workspace/roi/Pos3",
+    });
+  });
 });
