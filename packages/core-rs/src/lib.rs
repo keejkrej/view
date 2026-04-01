@@ -137,6 +137,29 @@ struct CropRoiPayload {
     format: CropOutputFormat,
 }
 
+#[derive(Deserialize)]
+struct ScanRoiWorkspacePayload {
+    #[serde(rename = "workspacePath")]
+    workspace_path: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct RoiFrameRequest {
+    pos: u32,
+    roi: u32,
+    channel: u32,
+    time: u32,
+    z: u32,
+}
+
+#[derive(Deserialize)]
+struct LoadRoiFramePayload {
+    #[serde(rename = "workspacePath")]
+    workspace_path: String,
+    request: RoiFrameRequest,
+    contrast: Option<ContrastWindow>,
+}
+
 #[derive(Serialize)]
 struct WsFramePayload {
     width: u32,
@@ -153,7 +176,7 @@ struct WsFramePayload {
     applied_contrast: ContrastWindow,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct RoiBbox {
     roi: u32,
     x: u32,
@@ -162,7 +185,7 @@ struct RoiBbox {
     h: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RoiIndexEntry {
     roi: u32,
@@ -171,17 +194,34 @@ struct RoiIndexEntry {
     shape: [u32; 5],
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RoiIndexFile {
     position: u32,
-    axis_order: &'static str,
-    page_order: [&'static str; 3],
+    axis_order: String,
+    page_order: Vec<String>,
     time_count: u32,
     channel_count: u32,
     z_count: u32,
     source: ViewerSource,
     rois: Vec<RoiIndexEntry>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoiPositionScan {
+    pos: u32,
+    source: ViewerSource,
+    channels: Vec<u32>,
+    times: Vec<u32>,
+    #[serde(rename = "zSlices")]
+    z_slices: Vec<u32>,
+    rois: Vec<RoiIndexEntry>,
+}
+
+#[derive(Serialize)]
+struct RoiWorkspaceScan {
+    positions: Vec<RoiPositionScan>,
 }
 
 fn parse_pos_dir_name(name: &str) -> Option<u32> {
@@ -292,8 +332,22 @@ fn to_u16_buffer(width: u32, height: u32, data: DecodingResult) -> Result<Vec<u1
 }
 
 fn load_tiff_frame(path: &Path) -> Result<RawFrame, String> {
+    load_tiff_frame_page(path, 0)
+}
+
+fn load_tiff_frame_page(path: &Path, page: usize) -> Result<RawFrame, String> {
     let file = File::open(path).map_err(|err| err.to_string())?;
     let mut decoder = Decoder::new(BufReader::new(file)).map_err(|err| err.to_string())?;
+    for page_idx in 0..page {
+        if !decoder.more_images() {
+            return Err(format!(
+                "TIFF page {} is out of range for {}",
+                page_idx + 1,
+                path.display()
+            ));
+        }
+        decoder.next_image().map_err(|err| err.to_string())?;
+    }
     let dimensions = decoder.dimensions().map_err(|err| err.to_string())?;
     let data = decoder.read_image().map_err(|err| err.to_string())?;
     let pixels = to_u16_buffer(dimensions.0, dimensions.1, data)?;
@@ -318,6 +372,53 @@ fn workspace_roi_tiff_path(root: &str, pos: u32, roi: u32) -> PathBuf {
 
 fn workspace_roi_index_path(root: &str, pos: u32) -> PathBuf {
     workspace_roi_pos_dir_path(root, pos).join("index.json")
+}
+
+fn roi_axis_values(count: u32) -> Vec<u32> {
+    (0..count).collect()
+}
+
+fn read_roi_index(workspace_path: &str, pos: u32) -> Result<RoiIndexFile, String> {
+    let path = workspace_roi_index_path(workspace_path, pos);
+    let bytes = fs::read(&path).map_err(|err| err.to_string())?;
+    let index =
+        serde_json::from_slice::<RoiIndexFile>(&bytes).map_err(|err| format!("{}: {err}", path.display()))?;
+
+    if index.position != pos {
+        return Err(format!(
+            "ROI index position {} does not match Pos{}",
+            index.position, pos
+        ));
+    }
+    if index.axis_order != "TCZYX" {
+        return Err(format!(
+            "Unsupported ROI axis order '{}' for Pos{}",
+            index.axis_order, pos
+        ));
+    }
+    let has_supported_page_order = index.page_order.len() == 3
+        && index.page_order[0] == "t"
+        && index.page_order[1] == "c"
+        && index.page_order[2] == "z";
+    if !has_supported_page_order {
+        return Err(format!(
+            "Unsupported ROI page order {:?} for Pos{}",
+            index.page_order, pos
+        ));
+    }
+
+    for roi in &index.rois {
+        if roi.shape[0] != index.time_count
+            || roi.shape[1] != index.channel_count
+            || roi.shape[2] != index.z_count
+            || roi.shape[3] != roi.bbox.h
+            || roi.shape[4] != roi.bbox.w
+        {
+            return Err(format!("ROI {} shape metadata does not match index", roi.roi));
+        }
+    }
+
+    Ok(index)
 }
 
 fn parse_bbox_csv(path: &Path) -> Result<Vec<RoiBbox>, String> {
@@ -457,8 +558,8 @@ fn write_roi_index(
 
     let index = RoiIndexFile {
         position: pos,
-        axis_order: "TCZYX",
-        page_order: ["t", "c", "z"],
+        axis_order: "TCZYX".to_string(),
+        page_order: vec!["t".to_string(), "c".to_string(), "z".to_string()],
         time_count: times.len() as u32,
         channel_count: channels.len() as u32,
         z_count: z_slices.len() as u32,
@@ -788,6 +889,78 @@ fn load_frame(source: ViewerSource, request: FrameRequest) -> Result<RawFrame, S
     }
 }
 
+fn scan_roi_workspace(workspace_path: String) -> Result<RoiWorkspaceScan, String> {
+    let root = Path::new(&workspace_path).join("roi");
+    if !root.is_dir() {
+        return Ok(RoiWorkspaceScan {
+            positions: Vec::new(),
+        });
+    }
+
+    let mut positions = Vec::<RoiPositionScan>::new();
+    let entries = fs::read_dir(&root).map_err(|err| err.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Some(pos) = parse_pos_dir_name(&name) else {
+            continue;
+        };
+
+        let index = read_roi_index(&workspace_path, pos)?;
+        positions.push(RoiPositionScan {
+            pos,
+            source: index.source.clone(),
+            channels: roi_axis_values(index.channel_count),
+            times: roi_axis_values(index.time_count),
+            z_slices: roi_axis_values(index.z_count),
+            rois: index.rois.clone(),
+        });
+    }
+
+    positions.sort_by_key(|entry| entry.pos);
+    Ok(RoiWorkspaceScan { positions })
+}
+
+fn load_roi_frame(workspace_path: String, request: RoiFrameRequest) -> Result<RawFrame, String> {
+    let index = read_roi_index(&workspace_path, request.pos)?;
+    let roi = index
+        .rois
+        .iter()
+        .find(|entry| entry.roi == request.roi)
+        .ok_or_else(|| format!("ROI {} not found for Pos{}", request.roi, request.pos))?;
+
+    if request.time >= index.time_count {
+        return Err(format!("Time index {} is out of range", request.time));
+    }
+    if request.channel >= index.channel_count {
+        return Err(format!("Channel index {} is out of range", request.channel));
+    }
+    if request.z >= index.z_count {
+        return Err(format!("Z index {} is out of range", request.z));
+    }
+
+    let page = ((request.time * index.channel_count + request.channel) * index.z_count + request.z)
+        as usize;
+    let raw = load_tiff_frame_page(
+        &workspace_roi_tiff_path(&workspace_path, request.pos, request.roi),
+        page,
+    )?;
+    if raw.width != roi.bbox.w || raw.height != roi.bbox.h {
+        return Err(format!(
+            "ROI {} TIFF page dimensions {}x{} do not match index {}x{}",
+            request.roi, raw.width, raw.height, roi.bbox.w, roi.bbox.h
+        ));
+    }
+
+    Ok(raw)
+}
+
 fn save_bbox(
     workspace_path: String,
     _source: ViewerSource,
@@ -1015,6 +1188,16 @@ where
                 Err(message) => error_response(id, message),
             }
         }
+        "scan_roi_workspace" => {
+            let payload = serde_json::from_value::<ScanRoiWorkspacePayload>(envelope.payload)
+                .map_err(|err| err.to_string());
+            match catch_backend_panic(|| {
+                payload.and_then(|payload| scan_roi_workspace(payload.workspace_path))
+            }) {
+                Ok(scan) => ok_response(id, "scan_roi_workspace_result", scan),
+                Err(message) => error_response(id, message),
+            }
+        }
         "load_frame" => {
             let payload = serde_json::from_value::<LoadFramePayload>(envelope.payload)
                 .map_err(|err| err.to_string());
@@ -1036,6 +1219,30 @@ where
                 })
             }) {
                 Ok(frame) => ok_response(id, "load_frame_result", frame),
+                Err(message) => error_response(id, message),
+            }
+        }
+        "load_roi_frame" => {
+            let payload = serde_json::from_value::<LoadRoiFramePayload>(envelope.payload)
+                .map_err(|err| err.to_string());
+            match catch_backend_panic(|| {
+                payload.and_then(|payload| {
+                    let raw = load_roi_frame(payload.workspace_path, payload.request)?;
+                    let suggested = auto_contrast(&raw.data);
+                    let applied = normalize_contrast(payload.contrast.as_ref().unwrap_or(&suggested));
+                    let bytes = apply_contrast(&raw.data, &applied);
+                    Ok(WsFramePayload {
+                        width: raw.width,
+                        height: raw.height,
+                        data_base64: BASE64_STANDARD.encode(bytes),
+                        pixel_type: "uint8",
+                        contrast_domain: contrast_domain(),
+                        suggested_contrast: suggested,
+                        applied_contrast: applied,
+                    })
+                })
+            }) {
+                Ok(frame) => ok_response(id, "load_roi_frame_result", frame),
                 Err(message) => error_response(id, message),
             }
         }
@@ -1101,9 +1308,10 @@ mod tests {
     use tiff::encoder::{colortype, TiffEncoder};
 
     use super::{
-        auto_contrast, catch_backend_panic, crop_roi, parse_bbox_csv, parse_pos_dir_name,
-        parse_tiff_name, save_bbox, workspace_bbox_csv_path, workspace_roi_index_path,
-        workspace_roi_tiff_path, ContrastWindow, CropOutputFormat, ViewerSource,
+        auto_contrast, catch_backend_panic, crop_roi, load_roi_frame, parse_bbox_csv,
+        parse_pos_dir_name, parse_tiff_name, read_roi_index, save_bbox, scan_roi_workspace,
+        workspace_bbox_csv_path, workspace_roi_index_path, workspace_roi_tiff_path,
+        ContrastWindow, CropOutputFormat, RoiFrameRequest, RoiIndexFile, ViewerSource,
     };
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -1120,6 +1328,16 @@ mod tests {
         encoder
             .write_image::<colortype::Gray16>(width, height, data)
             .unwrap();
+    }
+
+    fn write_test_u16_tiff_pages(path: &PathBuf, width: u32, height: u32, pages: &[Vec<u16>]) {
+        let file = fs::File::create(path).unwrap();
+        let mut encoder = TiffEncoder::new(BufWriter::new(file)).unwrap();
+        for page in pages {
+            encoder
+                .write_image::<colortype::Gray16>(width, height, page)
+                .unwrap();
+        }
     }
 
     #[test]
@@ -1182,6 +1400,82 @@ mod tests {
         assert_eq!(parsed[0].y, 11);
         assert_eq!(parsed[0].w, 12);
         assert_eq!(parsed[0].h, 13);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reads_roi_index_json() {
+        let root = unique_temp_dir("view-read-roi-index");
+        let roi_dir = root.join("roi").join("Pos5");
+        fs::create_dir_all(&roi_dir).unwrap();
+        let index = serde_json::json!({
+            "position": 5,
+            "axisOrder": "TCZYX",
+            "pageOrder": ["t", "c", "z"],
+            "timeCount": 2,
+            "channelCount": 3,
+            "zCount": 1,
+            "source": { "kind": "nd2", "path": "/tmp/source.nd2" },
+            "rois": [{
+                "roi": 4,
+                "fileName": "Roi4.tif",
+                "bbox": { "roi": 4, "x": 10, "y": 11, "w": 12, "h": 13 },
+                "shape": [2, 3, 1, 13, 12]
+            }]
+        });
+        fs::write(roi_dir.join("index.json"), serde_json::to_vec_pretty(&index).unwrap()).unwrap();
+
+        let parsed = read_roi_index(&root.to_string_lossy(), 5).unwrap();
+        assert_eq!(parsed.position, 5);
+        assert_eq!(parsed.time_count, 2);
+        assert_eq!(parsed.channel_count, 3);
+        assert_eq!(parsed.rois[0].roi, 4);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scans_roi_workspace_positions() {
+        let root = unique_temp_dir("view-scan-roi-workspace");
+        let roi_dir = root.join("roi").join("Pos2");
+        fs::create_dir_all(&roi_dir).unwrap();
+        let index = RoiIndexFile {
+            position: 2,
+            axis_order: "TCZYX".to_string(),
+            page_order: vec!["t".to_string(), "c".to_string(), "z".to_string()],
+            time_count: 4,
+            channel_count: 2,
+            z_count: 1,
+            source: ViewerSource::Tif {
+                path: "/tmp/images".to_string(),
+            },
+            rois: vec![super::RoiIndexEntry {
+                roi: 1,
+                file_name: "Roi1.tif".to_string(),
+                bbox: super::RoiBbox {
+                    roi: 1,
+                    x: 1,
+                    y: 2,
+                    w: 3,
+                    h: 4,
+                },
+                shape: [4, 2, 1, 4, 3],
+            }],
+        };
+        fs::write(
+            roi_dir.join("index.json"),
+            serde_json::to_vec_pretty(&index).unwrap(),
+        )
+        .unwrap();
+
+        let scan = scan_roi_workspace(root.to_string_lossy().to_string()).unwrap();
+        assert_eq!(scan.positions.len(), 1);
+        assert_eq!(scan.positions[0].pos, 2);
+        assert_eq!(scan.positions[0].times, vec![0, 1, 2, 3]);
+        assert_eq!(scan.positions[0].channels, vec![0, 1]);
+        assert_eq!(scan.positions[0].z_slices, vec![0]);
+        assert_eq!(scan.positions[0].rois[0].roi, 1);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1296,6 +1590,70 @@ mod tests {
         assert_eq!(pages[1], vec![106u16, 107, 110, 111]);
         assert_eq!(pages[2], vec![206u16, 207, 210, 211]);
         assert_eq!(pages[3], vec![306u16, 307, 310, 311]);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn loads_roi_frame_from_multipage_tiff() {
+        let root = unique_temp_dir("view-load-roi-frame");
+        let roi_dir = root.join("roi").join("Pos3");
+        fs::create_dir_all(&roi_dir).unwrap();
+        let index = RoiIndexFile {
+            position: 3,
+            axis_order: "TCZYX".to_string(),
+            page_order: vec!["t".to_string(), "c".to_string(), "z".to_string()],
+            time_count: 2,
+            channel_count: 2,
+            z_count: 1,
+            source: ViewerSource::Nd2 {
+                path: "/tmp/source.nd2".to_string(),
+            },
+            rois: vec![super::RoiIndexEntry {
+                roi: 8,
+                file_name: "Roi8.tif".to_string(),
+                bbox: super::RoiBbox {
+                    roi: 8,
+                    x: 20,
+                    y: 30,
+                    w: 2,
+                    h: 2,
+                },
+                shape: [2, 2, 1, 2, 2],
+            }],
+        };
+        fs::write(
+            roi_dir.join("index.json"),
+            serde_json::to_vec_pretty(&index).unwrap(),
+        )
+        .unwrap();
+        write_test_u16_tiff_pages(
+            &roi_dir.join("Roi8.tif"),
+            2,
+            2,
+            &[
+                vec![1, 2, 3, 4],
+                vec![11, 12, 13, 14],
+                vec![21, 22, 23, 24],
+                vec![31, 32, 33, 34],
+            ],
+        );
+
+        let frame = load_roi_frame(
+            root.to_string_lossy().to_string(),
+            RoiFrameRequest {
+                pos: 3,
+                roi: 8,
+                channel: 1,
+                time: 1,
+                z: 0,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(frame.width, 2);
+        assert_eq!(frame.height, 2);
+        assert_eq!(frame.data, vec![31, 32, 33, 34]);
 
         let _ = fs::remove_dir_all(root);
     }

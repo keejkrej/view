@@ -1,5 +1,4 @@
 import { Effect, Exit } from "effect";
-import { FolderOpen, X } from "lucide-react";
 import type { ChangeEvent } from "react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -64,6 +63,7 @@ import {
   scanSourceEffect,
   toErrorMessage,
 } from "./viewEffects";
+import ViewNavbar, { type ViewerMode } from "./ViewNavbar";
 
 type SelectValue = number | string;
 
@@ -76,6 +76,8 @@ interface ViewerWorkspaceProps {
   workspacePath: string | null;
   source: ViewerSource | null;
   backend: ViewerBackend;
+  mode: ViewerMode;
+  onModeChange: (mode: ViewerMode) => void;
   onPickWorkspace: () => Promise<void>;
   onOpenTif: () => Promise<void>;
   onOpenNd2: () => Promise<void>;
@@ -263,6 +265,8 @@ export default function ViewerWorkspace({
   workspacePath,
   source,
   backend,
+  mode,
+  onModeChange,
   onPickWorkspace,
   onOpenTif,
   onOpenNd2,
@@ -652,39 +656,16 @@ export default function ViewerWorkspace({
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 flex-col">
-        <header className="border-b border-border px-4 py-4 md:px-8">
-          <div className="relative flex items-center gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={() => void onPickWorkspace()}>
-                <span className="inline-flex items-center gap-2">
-                  <FolderOpen className="size-4" />
-                  Workspace
-                </span>
-              </Button>
-              <Button size="sm" variant="outline" disabled={!workspacePath} onClick={() => void onOpenTif()}>
-                Open TIF
-              </Button>
-              <Button size="sm" variant="outline" disabled={!workspacePath} onClick={() => void onOpenNd2()}>
-                Open ND2
-              </Button>
-              {source ? (
-                <Button size="sm" variant="outline" onClick={onClearSource}>
-                  <span className="inline-flex items-center gap-2">
-                    <X className="size-4" />
-                    Clear
-                  </span>
-                </Button>
-              ) : null}
-            </div>
-
-            <div className="pointer-events-none absolute left-1/2 flex max-w-[min(68vw,56rem)] -translate-x-1/2 flex-col text-center text-sm text-muted-foreground">
-              <p className="truncate">
-                {workspacePath ? `Workspace: ${workspacePath}` : "Workspace: not selected"}
-              </p>
-              <p className="truncate">{source ? `Source: ${source.path}` : "Source: not selected"}</p>
-            </div>
-          </div>
-        </header>
+        <ViewNavbar
+          workspacePath={workspacePath}
+          source={source}
+          mode={mode}
+          onModeChange={onModeChange}
+          onPickWorkspace={onPickWorkspace}
+          onOpenTif={onOpenTif}
+          onOpenNd2={onOpenNd2}
+          onClearSource={onClearSource}
+        />
 
         <main className="flex-1 min-h-0 overflow-hidden">
           <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_16rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_18rem]">

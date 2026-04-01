@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import { useStore } from "zustand";
 
 import type { ViewerBackend } from "@view/core-ts";
 import { makeSourceKey } from "@view/core-ts";
 
+import RoiWorkspace from "./RoiWorkspace";
 import ViewerWorkspace from "./ViewerWorkspace";
+import type { ViewerMode } from "./ViewNavbar";
 import { setSource, setWorkspacePath, viewStore } from "./viewStore";
 
 interface ViewAppProps {
@@ -12,6 +15,14 @@ interface ViewAppProps {
   pickTif: () => Promise<string | null>;
   pickNd2: () => Promise<string | null>;
   checkRoiExists: (workspacePath: string, pos: number) => Promise<boolean>;
+}
+
+const LAST_VIEWER_MODE_KEY = "view.viewerMode";
+
+function readStoredViewerMode(): ViewerMode {
+  if (typeof window === "undefined" || !window.sessionStorage) return "align";
+  const stored = window.sessionStorage.getItem(LAST_VIEWER_MODE_KEY);
+  return stored === "roi" ? "roi" : "align";
 }
 
 export default function ViewApp({
@@ -23,6 +34,12 @@ export default function ViewApp({
 }: ViewAppProps) {
   const workspacePath = useStore(viewStore, (state) => state.workspacePath);
   const source = useStore(viewStore, (state) => state.source);
+  const [mode, setMode] = useState<ViewerMode>(() => readStoredViewerMode());
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    window.sessionStorage.setItem(LAST_VIEWER_MODE_KEY, mode);
+  }, [mode]);
 
   const handlePickWorkspace = async () => {
     const selected = await pickWorkspace();
@@ -42,16 +59,33 @@ export default function ViewApp({
   };
 
   return (
-    <ViewerWorkspace
-      key={source ? makeSourceKey(source) : "no-source"}
-      workspacePath={workspacePath}
-      source={source}
-      backend={backend}
-      onPickWorkspace={handlePickWorkspace}
-      onOpenTif={handlePickTif}
-      onOpenNd2={handlePickNd2}
-      onCheckRoiExists={checkRoiExists}
-      onClearSource={() => setSource(null)}
-    />
+    mode === "align" ? (
+      <ViewerWorkspace
+        key={source ? `align:${makeSourceKey(source)}` : "align:no-source"}
+        workspacePath={workspacePath}
+        source={source}
+        backend={backend}
+        mode={mode}
+        onModeChange={setMode}
+        onPickWorkspace={handlePickWorkspace}
+        onOpenTif={handlePickTif}
+        onOpenNd2={handlePickNd2}
+        onCheckRoiExists={checkRoiExists}
+        onClearSource={() => setSource(null)}
+      />
+    ) : (
+      <RoiWorkspace
+        key="roi-workspace"
+        workspacePath={workspacePath}
+        source={source}
+        backend={backend}
+        mode={mode}
+        onModeChange={setMode}
+        onPickWorkspace={handlePickWorkspace}
+        onOpenTif={handlePickTif}
+        onOpenNd2={handlePickNd2}
+        onClearSource={() => setSource(null)}
+      />
+    )
   );
 }

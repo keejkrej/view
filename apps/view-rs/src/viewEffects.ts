@@ -3,6 +3,8 @@ import { Effect } from "effect";
 import type {
   ContrastWindow,
   FrameResult,
+  RoiFrameRequest,
+  RoiWorkspaceScan,
   ViewerBackend,
   ViewerSelection,
   ViewerSource,
@@ -42,6 +44,16 @@ export function scanSourceEffect(backend: ViewerBackend, source: ViewerSource) {
       selection: coerceSelection(scan, createSelection(scan)),
     })),
     Effect.withSpan("viewer.scan-source"),
+  );
+}
+
+export function scanRoiWorkspaceEffect(backend: ViewerBackend, workspacePath: string) {
+  return Effect.tryPromise({
+    try: () => backend.scanRoiWorkspace(workspacePath),
+    catch: (error) => toError(error, "Failed to scan ROI workspace"),
+  }).pipe(
+    Effect.map((scan) => ({ scan })),
+    Effect.withSpan("viewer.scan-roi-workspace"),
   );
 }
 
@@ -91,6 +103,55 @@ export function loadFrameEffect(
       };
     }),
     Effect.withSpan("viewer.load-frame"),
+  );
+}
+
+export function loadRoiFrameEffect(
+  backend: ViewerBackend,
+  workspacePath: string,
+  request: RoiFrameRequest,
+  contrast: {
+    mode: ContrastMode;
+    min: number;
+    max: number;
+  },
+) {
+  const requestedContrast =
+    contrast.mode === "manual"
+      ? ({
+          min: contrast.min,
+          max: contrast.max,
+        } satisfies ContrastWindow)
+      : undefined;
+
+  return Effect.tryPromise({
+    try: () =>
+      backend.loadRoiFrame(
+        workspacePath,
+        request,
+        requestedContrast ? { contrast: requestedContrast } : undefined,
+      ),
+    catch: (error) => toError(error, "Failed to load ROI frame"),
+  }).pipe(
+    Effect.map((frame) => {
+      const domain = contrastWindowForFrame(frame);
+      const applied = frame.appliedContrast ?? frame.suggestedContrast ?? domain;
+
+      return {
+        frame,
+        contrastMin: clamp(
+          Math.round(applied.min),
+          domain.min,
+          Math.max(domain.min, domain.max - 1),
+        ),
+        contrastMax: clamp(
+          Math.round(applied.max),
+          Math.min(domain.min + 1, domain.max),
+          domain.max,
+        ),
+      };
+    }),
+    Effect.withSpan("viewer.load-roi-frame"),
   );
 }
 

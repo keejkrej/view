@@ -9,6 +9,34 @@ export interface WorkspaceScan {
   zSlices: number[];
 }
 
+export interface RoiBbox {
+  roi: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface RoiIndexEntry {
+  roi: number;
+  fileName: string;
+  bbox: RoiBbox;
+  shape: [number, number, number, number, number];
+}
+
+export interface RoiPositionScan {
+  pos: number;
+  source: ViewerSource;
+  channels: number[];
+  times: number[];
+  zSlices: number[];
+  rois: RoiIndexEntry[];
+}
+
+export interface RoiWorkspaceScan {
+  positions: RoiPositionScan[];
+}
+
 export interface TifSource {
   kind: "tif";
   path: string;
@@ -41,6 +69,14 @@ export type PixelArray =
 
 export interface FrameRequest {
   pos: number;
+  channel: number;
+  time: number;
+  z: number;
+}
+
+export interface RoiFrameRequest {
+  pos: number;
+  roi: number;
   channel: number;
   time: number;
   z: number;
@@ -104,6 +140,12 @@ export interface CropRoiProgressEvent {
 }
 
 export interface ViewerBackend extends ViewerDataSource {
+  scanRoiWorkspace(workspacePath: string): Promise<RoiWorkspaceScan>;
+  loadRoiFrame(
+    workspacePath: string,
+    request: RoiFrameRequest,
+    options?: LoadFrameOptions,
+  ): Promise<FrameResult>;
   saveBbox(workspacePath: string, source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
   cropRoi(
     workspacePath: string,

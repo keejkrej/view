@@ -7,6 +7,8 @@ import type {
   FrameRequest,
   FrameResult,
   LoadFrameOptions,
+  RoiFrameRequest,
+  RoiWorkspaceScan,
   SaveBboxResponse,
   ViewerBackend,
   ViewerSource,
@@ -84,6 +86,12 @@ class WebSocketBackend implements ViewerBackend {
     return Effect.runPromise(this.requestEffect<WorkspaceScan>("scan_source", { source }));
   }
 
+  async scanRoiWorkspace(workspacePath: string): Promise<RoiWorkspaceScan> {
+    return Effect.runPromise(
+      this.requestEffect<RoiWorkspaceScan>("scan_roi_workspace", { workspacePath }),
+    );
+  }
+
   async loadFrame(
     source: ViewerSource,
     request: FrameRequest,
@@ -92,6 +100,29 @@ class WebSocketBackend implements ViewerBackend {
     const payload = await Effect.runPromise(
       this.requestEffect<FramePayload>("load_frame", {
         source,
+        request,
+        contrast: options?.contrast ?? null,
+      }),
+    );
+    return {
+      width: payload.width,
+      height: payload.height,
+      pixels: decodeBase64ToBytes(payload.dataBase64),
+      pixelType: payload.pixelType ?? "uint8",
+      contrastDomain: payload.contrastDomain,
+      suggestedContrast: payload.suggestedContrast,
+      appliedContrast: payload.appliedContrast,
+    };
+  }
+
+  async loadRoiFrame(
+    workspacePath: string,
+    request: RoiFrameRequest,
+    options?: LoadFrameOptions,
+  ): Promise<FrameResult> {
+    const payload = await Effect.runPromise(
+      this.requestEffect<FramePayload>("load_roi_frame", {
+        workspacePath,
         request,
         contrast: options?.contrast ?? null,
       }),
