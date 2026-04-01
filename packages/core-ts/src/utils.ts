@@ -302,8 +302,8 @@ export function buildBboxCsv(
   excludedCellIds?: Iterable<string>,
 ): string {
   const excluded = excludedCellIds ? new Set(excludedCellIds) : new Set<string>();
-  const rows = ["crop,x,y,w,h"];
-  let crop = 0;
+  const rows = ["roi,x,y,w,h"];
+  let roi = 0;
 
   for (const cell of enumerateVisibleGridCells(frame, grid)) {
     if (excluded.has(cell.id)) continue;
@@ -317,8 +317,8 @@ export function buildBboxCsv(
 
     if (clippedWidth <= 0 || clippedHeight <= 0) continue;
 
-    rows.push(`${crop},${clippedX},${clippedY},${clippedWidth},${clippedHeight}`);
-    crop += 1;
+    rows.push(`${roi},${clippedX},${clippedY},${clippedWidth},${clippedHeight}`);
+    roi += 1;
   }
 
   return rows.join("\n");

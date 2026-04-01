@@ -324,7 +324,7 @@ describe("grid utils", () => {
     );
 
     const lines = csv.split("\n");
-    expect(lines[0]).toBe("crop,x,y,w,h");
+    expect(lines[0]).toBe("roi,x,y,w,h");
     expect(lines.some((line) => line === "1,0,25,25,50")).toBe(true);
     expect(lines.some((line) => line.includes(",25,25,50,50"))).toBe(false);
   });

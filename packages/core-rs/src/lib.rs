@@ -611,13 +611,13 @@ mod tests {
             root.to_string_lossy().to_string(),
             source.clone(),
             7,
-            "crop,x,y,w,h\n0,1,2,3,4".to_string(),
+            "roi,x,y,w,h\n0,1,2,3,4".to_string(),
         );
         assert!(result.ok);
 
         let saved_path = workspace_bbox_csv_path(&root.to_string_lossy(), 7);
         let saved = fs::read_to_string(&saved_path).unwrap();
-        assert_eq!(saved, "crop,x,y,w,h\n0,1,2,3,4\n");
+        assert_eq!(saved, "roi,x,y,w,h\n0,1,2,3,4\n");
 
         let _ = fs::remove_file(saved_path);
         let _ = fs::remove_dir_all(root);

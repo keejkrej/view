@@ -226,8 +226,8 @@ def build_bbox_csv(
     grid: GridState,
     excluded_cell_ids: set[str] | list[str],
 ) -> str:
-    rows = ["crop,x,y,w,h"]
-    crop = 0
+    rows = ["roi,x,y,w,h"]
+    roi = 0
     excluded = set(excluded_cell_ids)
     for cell in enumerate_visible_grid_cells(frame_width, frame_height, grid):
         if cell.id in excluded:
@@ -242,8 +242,8 @@ def build_bbox_csv(
         if clipped_width <= 0 or clipped_height <= 0:
             continue
 
-        rows.append(f"{crop},{clipped_x},{clipped_y},{clipped_width},{clipped_height}")
-        crop += 1
+        rows.append(f"{roi},{clipped_x},{clipped_y},{clipped_width},{clipped_height}")
+        roi += 1
     return "\n".join(rows)
 
 

@@ -84,7 +84,7 @@ describe("websocket backend", () => {
       "/tmp/workspace",
       { kind: "tif", path: "/tmp/workspace/images" },
       7,
-      "crop,x,y,w,h",
+      "roi,x,y,w,h",
     );
 
     await new Promise((resolve) => setTimeout(resolve, 0));
