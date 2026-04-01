@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import sys
 import unittest
 from itertools import product
 from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages" / "core-py" / "src"))
+import sys
 
-import native_shell  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages" / "core-py" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from view_py import native_shell  # noqa: E402
 
 
 class FakeND2Handle:

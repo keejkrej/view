@@ -6,6 +6,13 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+members = [
+    "core-py",
+    "view-py",
+    "view-root",
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -533,9 +540,9 @@ wheels = [
 ]
 
 [[package]]
-name = "view-root"
+name = "view-py"
 version = "0.1.0"
-source = { editable = "." }
+source = { editable = "apps/view-py" }
 dependencies = [
     { name = "core-py" },
     { name = "nd2" },
@@ -554,6 +561,17 @@ requires-dist = [
     { name = "tifffile", specifier = ">=2025.1.10" },
     { name = "websockets", specifier = ">=15.0.0" },
 ]
+
+[[package]]
+name = "view-root"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "view-py" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "view-py", editable = "apps/view-py" }]
 
 [[package]]
 name = "websockets"

@@ -10,5 +10,5 @@
       "@view/ui/theme.css": ["../../packages/ui/src/theme.css"]
     }
   },
-  "include": ["web/src"]
+  "include": ["src"]
 }

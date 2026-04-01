@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev:web": "vite --config vite.config.ts",
-    "dev": "bunx @tauri-apps/cli dev --config tauri/tauri.conf.json",
+    "dev": "bunx @tauri-apps/cli dev --config src-tauri/tauri.conf.json",
     "build:renderer": "tsc --noEmit -p tsconfig.json && vite build --config vite.config.ts",
     "build": "bun run build:renderer",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "check:tauri": "cargo check --manifest-path tauri/Cargo.toml"
+    "check:tauri": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
-import runpy
 import subprocess
 from pathlib import Path
 
+from .native_shell import main as native_main
 
-ROOT = Path(__file__).resolve().parent
+
+APP_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = APP_ROOT.parents[1]
 
 
 def latest_mtime(root: Path) -> float:
@@ -24,17 +26,17 @@ def ensure_view_py_web_dist() -> None:
     if os.getenv("VIEW_PYSIDE6_URL"):
         return
 
-    dist_index = ROOT / "apps" / "view-py" / "web" / "dist" / "index.html"
+    dist_index = APP_ROOT / "web" / "dist" / "index.html"
     source_paths = [
-        ROOT / "package.json",
-        ROOT / "bun.lock",
-        ROOT / "packages" / "view" / "package.json",
-        ROOT / "packages" / "view" / "src",
-        ROOT / "apps" / "view-py" / "web" / "index.html",
-        ROOT / "apps" / "view-py" / "web" / "package.json",
-        ROOT / "apps" / "view-py" / "web" / "src",
-        ROOT / "apps" / "view-py" / "web" / "vite.config.ts",
-        ROOT / "apps" / "view-py" / "web" / "tsconfig.json",
+        REPO_ROOT / "package.json",
+        REPO_ROOT / "bun.lock",
+        REPO_ROOT / "packages" / "view" / "package.json",
+        REPO_ROOT / "packages" / "view" / "src",
+        APP_ROOT / "web" / "index.html",
+        APP_ROOT / "web" / "package.json",
+        APP_ROOT / "web" / "src",
+        APP_ROOT / "web" / "vite.config.ts",
+        APP_ROOT / "web" / "tsconfig.json",
     ]
     latest_source_change = max(latest_mtime(path) for path in source_paths if path.exists())
 
@@ -44,7 +46,7 @@ def ensure_view_py_web_dist() -> None:
     try:
         subprocess.run(
             ["bun", "run", "build:view-py:web"],
-            cwd=ROOT,
+            cwd=REPO_ROOT,
             check=True,
         )
     except FileNotFoundError as error:
@@ -55,6 +57,4 @@ def ensure_view_py_web_dist() -> None:
 
 def main() -> int:
     ensure_view_py_web_dist()
-    app_path = ROOT / "apps" / "view-py" / "pyside6" / "main.py"
-    module_globals = runpy.run_path(str(app_path))
-    return int(module_globals["main"]())
+    return int(native_main())

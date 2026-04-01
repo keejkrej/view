@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.27", "pathspec<1"]
+build-backend = "hatchling.build"
+
+[project]
+name = "view-py"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "core-py",
+  "nd2>=0.10",
+  "numpy>=2.0.0",
+  "PySide6>=6.7.0",
+  "tifffile>=2025.1.10",
+  "websockets>=15.0.0",
+]
+
+[project.scripts]
+view-py = "view_py.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/view_py"]

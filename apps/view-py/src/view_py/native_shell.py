@@ -1564,7 +1564,7 @@ def resolve_frontend_url() -> tuple[QUrl, Callable[[], None] | None]:
     if env_url:
         return QUrl(env_url), None
 
-    dist_index = Path(__file__).resolve().parent.parent / "web" / "dist" / "index.html"
+    dist_index = Path(__file__).resolve().parents[2] / "web" / "dist" / "index.html"
     if dist_index.exists():
         return QUrl.fromLocalFile(str(dist_index.resolve())), None
 
