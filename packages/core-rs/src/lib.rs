@@ -101,6 +101,12 @@ struct ErrorPayload {
     message: String,
 }
 
+#[derive(Serialize)]
+struct CropRoiProgressPayload {
+    progress: f64,
+    message: String,
+}
+
 #[derive(Deserialize)]
 struct ScanSourcePayload {
     source: ViewerSource,
@@ -475,7 +481,16 @@ fn prepare_roi_output_dir(workspace_path: &str, pos: u32) -> Result<PathBuf, Str
     Ok(pos_dir)
 }
 
-fn crop_tif_source(workspace_path: &str, root: &Path, pos: u32, bboxes: &[RoiBbox]) -> Result<PathBuf, String> {
+fn crop_tif_source<F>(
+    workspace_path: &str,
+    root: &Path,
+    pos: u32,
+    bboxes: &[RoiBbox],
+    progress: &mut F,
+) -> Result<PathBuf, String>
+where
+    F: FnMut(f64, &str) -> Result<(), String>,
+{
     let pos_dir = find_position_dir(root, pos)?;
     let mut index = HashMap::<(u32, u32, u32), PathBuf>::new();
     let mut channels = BTreeSet::new();
@@ -506,6 +521,7 @@ fn crop_tif_source(workspace_path: &str, root: &Path, pos: u32, bboxes: &[RoiBbo
     validate_bboxes(bboxes, first_frame.width, first_frame.height)?;
 
     prepare_roi_output_dir(workspace_path, pos)?;
+    progress(0.02, &format!("Opening ROI TIFF writers for Pos{pos}"))?;
     let mut encoders = bboxes
         .iter()
         .map(|bbox| {
@@ -515,6 +531,8 @@ fn crop_tif_source(workspace_path: &str, root: &Path, pos: u32, bboxes: &[RoiBbo
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    let total_planes = times.len() * channels.len() * z_slices.len();
+    let mut processed_planes = 0usize;
     for time in &times {
         for channel in &channels {
             for z in &z_slices {
@@ -532,10 +550,21 @@ fn crop_tif_source(workspace_path: &str, root: &Path, pos: u32, bboxes: &[RoiBbo
                         .write_image::<colortype::Gray16>(bbox.w, bbox.h, &cropped)
                         .map_err(|err| err.to_string())?;
                 }
+                processed_planes += 1;
+                let plane_progress = if total_planes == 0 {
+                    1.0
+                } else {
+                    processed_planes as f64 / total_planes as f64
+                };
+                progress(
+                    0.02 + plane_progress * 0.96,
+                    &format!("Cropping frame {processed_planes}/{total_planes} for Pos{pos}"),
+                )?;
             }
         }
     }
 
+    progress(0.99, &format!("Writing ROI index for Pos{pos}"))?;
     write_roi_index(
         workspace_path,
         pos,
@@ -547,10 +576,20 @@ fn crop_tif_source(workspace_path: &str, root: &Path, pos: u32, bboxes: &[RoiBbo
         &z_slices,
         bboxes,
     )?;
+    progress(1.0, &format!("Finished ROI crop for Pos{pos}"))?;
     Ok(workspace_roi_pos_dir_path(workspace_path, pos))
 }
 
-fn crop_nd2_source(workspace_path: &str, path: &Path, pos: u32, bboxes: &[RoiBbox]) -> Result<PathBuf, String> {
+fn crop_nd2_source<F>(
+    workspace_path: &str,
+    path: &Path,
+    pos: u32,
+    bboxes: &[RoiBbox],
+    progress: &mut F,
+) -> Result<PathBuf, String>
+where
+    F: FnMut(f64, &str) -> Result<(), String>,
+{
     let mut nd2 = Nd2File::open(path).map_err(|err| err.to_string())?;
     let sizes = nd2.sizes().map_err(|err| err.to_string())?;
     let width = u32::try_from(dimension_size(&sizes, "X")).map_err(|err| err.to_string())?;
@@ -567,6 +606,7 @@ fn crop_nd2_source(workspace_path: &str, path: &Path, pos: u32, bboxes: &[RoiBbo
     validate_bboxes(bboxes, width, height)?;
 
     prepare_roi_output_dir(workspace_path, pos)?;
+    progress(0.02, &format!("Opening ROI TIFF writers for Pos{pos}"))?;
     let mut encoders = bboxes
         .iter()
         .map(|bbox| {
@@ -576,6 +616,8 @@ fn crop_nd2_source(workspace_path: &str, path: &Path, pos: u32, bboxes: &[RoiBbo
         })
         .collect::<Result<Vec<_>, String>>()?;
 
+    let total_planes = times.len() * channels.len() * z_slices.len();
+    let mut processed_planes = 0usize;
     for time in &times {
         let time_index = validate_request_index("Time", *time, dimension_size(&sizes, "T"))?;
         for channel in &channels {
@@ -596,10 +638,21 @@ fn crop_nd2_source(workspace_path: &str, path: &Path, pos: u32, bboxes: &[RoiBbo
                         .write_image::<colortype::Gray16>(bbox.w, bbox.h, &cropped)
                         .map_err(|err| err.to_string())?;
                 }
+                processed_planes += 1;
+                let plane_progress = if total_planes == 0 {
+                    1.0
+                } else {
+                    processed_planes as f64 / total_planes as f64
+                };
+                progress(
+                    0.02 + plane_progress * 0.96,
+                    &format!("Cropping frame {processed_planes}/{total_planes} for Pos{pos}"),
+                )?;
             }
         }
     }
 
+    progress(0.99, &format!("Writing ROI index for Pos{pos}"))?;
     write_roi_index(
         workspace_path,
         pos,
@@ -611,6 +664,7 @@ fn crop_nd2_source(workspace_path: &str, path: &Path, pos: u32, bboxes: &[RoiBbo
         &z_slices,
         bboxes,
     )?;
+    progress(1.0, &format!("Finished ROI crop for Pos{pos}"))?;
     Ok(workspace_roi_pos_dir_path(workspace_path, pos))
 }
 
@@ -772,12 +826,16 @@ fn save_bbox(
     }
 }
 
-fn crop_roi(
+fn crop_roi<F>(
     workspace_path: String,
     source: ViewerSource,
     pos: u32,
     format: CropOutputFormat,
-) -> CropRoiResponse {
+    progress: &mut F,
+) -> CropRoiResponse
+where
+    F: FnMut(f64, &str) -> Result<(), String>,
+{
     if !matches!(format, CropOutputFormat::Tiff) {
         return CropRoiResponse {
             ok: false,
@@ -795,9 +853,22 @@ fn crop_roi(
         };
     }
 
+    if let Err(error) = progress(0.0, &format!("Reading bbox CSV for Pos{pos}")) {
+        return CropRoiResponse {
+            ok: false,
+            error: Some(error),
+            output_path: None,
+        };
+    }
     let result = parse_bbox_csv(&bbox_path).and_then(|bboxes| match &source {
-        ViewerSource::Tif { path } => crop_tif_source(&workspace_path, Path::new(path), pos, &bboxes),
-        ViewerSource::Nd2 { path } => crop_nd2_source(&workspace_path, Path::new(path), pos, &bboxes),
+        ViewerSource::Tif { path } => {
+            progress(0.01, &format!("Scanning TIFF stack for Pos{pos}"))?;
+            crop_tif_source(&workspace_path, Path::new(path), pos, &bboxes, progress)
+        }
+        ViewerSource::Nd2 { path } => {
+            progress(0.01, &format!("Opening ND2 source for Pos{pos}"))?;
+            crop_nd2_source(&workspace_path, Path::new(path), pos, &bboxes, progress)
+        }
     });
 
     match result {
@@ -897,6 +968,17 @@ fn error_response(id: String, message: String) -> String {
     ok_response(id, "error", ErrorPayload { message })
 }
 
+fn crop_progress_response(id: String, progress: f64, message: String) -> String {
+    ok_response(
+        id,
+        "crop_roi_progress",
+        CropRoiProgressPayload {
+            progress: progress.clamp(0.0, 1.0),
+            message,
+        },
+    )
+}
+
 fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
         return format!("Backend panic: {message}");
@@ -917,7 +999,10 @@ where
     }
 }
 
-pub fn handle_ws_request(text: &str) -> Option<String> {
+pub fn handle_ws_request_with_progress<F>(text: &str, mut emit_progress: F) -> Option<String>
+where
+    F: FnMut(String) -> Result<(), String>,
+{
     let envelope: WsEnvelope = serde_json::from_str(text).ok()?;
     let id = envelope.id.clone();
 
@@ -970,11 +1055,28 @@ pub fn handle_ws_request(text: &str) -> Option<String> {
             let payload = serde_json::from_value::<CropRoiPayload>(envelope.payload)
                 .map_err(|err| err.to_string());
             match payload {
-                Ok(payload) => ok_response(
-                    id,
-                    "crop_roi_result",
-                    crop_roi(payload.workspace_path, payload.source, payload.pos, payload.format),
-                ),
+                Ok(payload) => {
+                    let progress_id = id.clone();
+                    let response_id = id.clone();
+                    let mut progress = |value: f64, message: &str| {
+                        emit_progress(crop_progress_response(
+                            progress_id.clone(),
+                            value,
+                            message.to_string(),
+                        ))
+                    };
+                    ok_response(
+                        response_id,
+                        "crop_roi_result",
+                        crop_roi(
+                            payload.workspace_path,
+                            payload.source,
+                            payload.pos,
+                            payload.format,
+                            &mut progress,
+                        ),
+                    )
+                }
                 Err(message) => error_response(id, message),
             }
         }
@@ -982,6 +1084,10 @@ pub fn handle_ws_request(text: &str) -> Option<String> {
     };
 
     Some(response)
+}
+
+pub fn handle_ws_request(text: &str) -> Option<String> {
+    handle_ws_request_with_progress(text, |_| Ok(()))
 }
 
 #[cfg(test)]
@@ -1139,6 +1245,7 @@ mod tests {
         )
         .unwrap();
 
+        let mut progress_events = Vec::new();
         let response = crop_roi(
             workspace.to_string_lossy().to_string(),
             ViewerSource::Tif {
@@ -1146,8 +1253,13 @@ mod tests {
             },
             7,
             CropOutputFormat::Tiff,
+            &mut |value, message| {
+                progress_events.push((value, message.to_string()));
+                Ok(())
+            },
         );
         assert!(response.ok, "{:?}", response.error);
+        assert!(!progress_events.is_empty());
 
         let roi0_path = workspace_roi_tiff_path(&workspace.to_string_lossy(), 7, 0);
         let roi1_path = workspace_roi_tiff_path(&workspace.to_string_lossy(), 7, 1);

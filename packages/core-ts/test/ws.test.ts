@@ -146,4 +146,62 @@ describe("websocket backend", () => {
       outputPath: "/tmp/workspace/roi/Pos3",
     });
   });
+
+  test("delivers crop progress events without resolving the request early", async () => {
+    const backend = createWebSocketBackend({ url: "ws://example.test" });
+    const progressEvents: Array<{ requestId: string; progress: number; message: string }> = [];
+    const unsubscribe = backend.onCropRoiProgress((event) => {
+      progressEvents.push(event);
+    });
+
+    const promise = backend.cropRoi(
+      "/tmp/workspace",
+      { kind: "tif", path: "/tmp/workspace/images" },
+      4,
+      "tiff",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const socket = FakeWebSocket.instance;
+    expect(socket).not.toBeNull();
+    const sent = JSON.parse(socket!.sent[0] ?? "{}") as { id: string };
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "crop_roi_progress",
+        payload: {
+          progress: 0.5,
+          message: "Cropping frame 5/10 for Pos4",
+        },
+      }),
+    });
+
+    expect(progressEvents).toEqual([
+      {
+        requestId: sent.id,
+        progress: 0.5,
+        message: "Cropping frame 5/10 for Pos4",
+      },
+    ]);
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "crop_roi_result",
+        payload: {
+          ok: true,
+          outputPath: "/tmp/workspace/roi/Pos4",
+        },
+      }),
+    });
+
+    await expect(promise).resolves.toEqual({
+      ok: true,
+      outputPath: "/tmp/workspace/roi/Pos4",
+    });
+
+    unsubscribe();
+  });
 });

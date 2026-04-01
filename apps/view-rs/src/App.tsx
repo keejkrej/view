@@ -12,6 +12,11 @@ export default function App() {
       pickWorkspace={() => invoke<string | null>("pick_workspace")}
       pickTif={() => invoke<string | null>("pick_tif")}
       pickNd2={() => invoke<string | null>("pick_nd2")}
+      checkRoiExists={(workspacePath, pos) =>
+        invoke<boolean>("roi_pos_exists", {
+          workspacePath,
+          pos,
+        })}
     />
   );
 }

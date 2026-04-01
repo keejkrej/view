@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import type {
   CropOutputFormat,
+  CropRoiProgressEvent,
   CropRoiResponse,
   FrameRequest,
   FrameResult,
@@ -73,6 +74,8 @@ class WebSocketBackend implements ViewerBackend {
     }
   >();
 
+  private readonly cropProgressListeners = new Set<(event: CropRoiProgressEvent) => void>();
+
   constructor(options: WebSocketBackendOptions) {
     this.url = options.url;
   }
@@ -124,6 +127,13 @@ class WebSocketBackend implements ViewerBackend {
     return Effect.runPromise(
       this.requestEffect<CropRoiResponse>("crop_roi", { workspacePath, source, pos, format }),
     );
+  }
+
+  onCropRoiProgress(listener: (event: CropRoiProgressEvent) => void): () => void {
+    this.cropProgressListeners.add(listener);
+    return () => {
+      this.cropProgressListeners.delete(listener);
+    };
   }
 
   private requestEffect<T>(type: string, payload: unknown) {
@@ -200,6 +210,23 @@ class WebSocketBackend implements ViewerBackend {
     try {
       envelope = JSON.parse(event.data) as ResponseEnvelope;
     } catch {
+      return;
+    }
+
+    if (envelope.id && envelope.type === "crop_roi_progress") {
+      const payload = (envelope.payload ?? {}) as Partial<{ progress: number; message: string }>;
+      const progress =
+        typeof payload.progress === "number" && Number.isFinite(payload.progress)
+          ? Math.max(0, Math.min(1, payload.progress))
+          : 0;
+      const message = typeof payload.message === "string" && payload.message ? payload.message : "Cropping ROI TIFFs";
+      for (const listener of this.cropProgressListeners) {
+        listener({
+          requestId: envelope.id,
+          progress,
+          message,
+        });
+      }
       return;
     }
 

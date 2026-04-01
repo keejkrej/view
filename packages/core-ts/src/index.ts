@@ -32,6 +32,7 @@ export {
 export type {
   ContrastWindow,
   CropOutputFormat,
+  CropRoiProgressEvent,
   CropRoiResponse,
   ExcludedCellIdsByPosition,
   FrameRequest,

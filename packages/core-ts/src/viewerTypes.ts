@@ -97,6 +97,12 @@ export interface CropRoiResponse {
   outputPath?: string;
 }
 
+export interface CropRoiProgressEvent {
+  requestId: string;
+  progress: number;
+  message: string;
+}
+
 export interface ViewerBackend extends ViewerDataSource {
   saveBbox(workspacePath: string, source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
   cropRoi(
@@ -105,6 +111,7 @@ export interface ViewerBackend extends ViewerDataSource {
     pos: number,
     format: CropOutputFormat,
   ): Promise<CropRoiResponse>;
+  onCropRoiProgress(listener: (event: CropRoiProgressEvent) => void): () => void;
 }
 
 export type ExcludedCellIdsByPosition = Record<number, string[]>;

@@ -11,9 +11,16 @@ interface ViewAppProps {
   pickWorkspace: () => Promise<string | null>;
   pickTif: () => Promise<string | null>;
   pickNd2: () => Promise<string | null>;
+  checkRoiExists: (workspacePath: string, pos: number) => Promise<boolean>;
 }
 
-export default function ViewApp({ backend, pickWorkspace, pickTif, pickNd2 }: ViewAppProps) {
+export default function ViewApp({
+  backend,
+  pickWorkspace,
+  pickTif,
+  pickNd2,
+  checkRoiExists,
+}: ViewAppProps) {
   const workspacePath = useStore(viewStore, (state) => state.workspacePath);
   const source = useStore(viewStore, (state) => state.source);
 
@@ -43,6 +50,7 @@ export default function ViewApp({ backend, pickWorkspace, pickTif, pickNd2 }: Vi
       onPickWorkspace={handlePickWorkspace}
       onOpenTif={handlePickTif}
       onOpenNd2={handlePickNd2}
+      onCheckRoiExists={checkRoiExists}
       onClearSource={() => setSource(null)}
     />
   );

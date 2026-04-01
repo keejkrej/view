@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import type {
   ContrastWindow,
   FrameResult,
+  CropRoiProgressEvent,
   ViewerCanvasStatusMessage,
   ViewerBackend,
   ViewerSource,
@@ -78,6 +79,7 @@ interface ViewerWorkspaceProps {
   onPickWorkspace: () => Promise<void>;
   onOpenTif: () => Promise<void>;
   onOpenNd2: () => Promise<void>;
+  onCheckRoiExists: (workspacePath: string, pos: number) => Promise<boolean>;
   onClearSource: () => void;
 }
 
@@ -264,9 +266,16 @@ export default function ViewerWorkspace({
   onPickWorkspace,
   onOpenTif,
   onOpenNd2,
+  onCheckRoiExists,
   onClearSource,
 }: ViewerWorkspaceProps) {
   const frameCacheRef = useRef(new FrameCache());
+  const [cropConfirmOpen, setCropConfirmOpen] = useState(false);
+  const [cropProgress, setCropProgressValue] = useState<CropRoiProgressEvent>({
+    requestId: "",
+    progress: 0,
+    message: "Preparing ROI crop...",
+  });
   const {
     scan,
     selection,
@@ -351,6 +360,12 @@ export default function ViewerWorkspace({
       abortController.abort();
     };
   }, [backend, source]);
+
+  useEffect(() => {
+    return backend.onCropRoiProgress((event) => {
+      setCropProgressValue(event);
+    });
+  }, [backend]);
 
   const contrastRequestKey =
     contrastMode === "auto" ? `auto:${contrastReloadToken}` : `${contrastMin}:${contrastMax}`;
@@ -567,11 +582,16 @@ export default function ViewerWorkspace({
     excludeCells(selection.pos, edgeCellIds);
   }, [frame, grid, selection]);
 
-  const handleCrop = useCallback(async () => {
+  const performCrop = useCallback(async () => {
     if (!workspacePath || !source || !selection) return;
 
     setCropping(true);
     setCropState(IDLE_SAVE_STATE);
+    setCropProgressValue({
+      requestId: "",
+      progress: 0,
+      message: `Preparing ROI crop for Pos${selection.pos}...`,
+    });
     const exit = await Effect.runPromiseExit(
       cropRoiEffect(backend, {
         workspacePath,
@@ -585,6 +605,11 @@ export default function ViewerWorkspace({
       if (!response.ok) {
         setCropState({ type: "error", message: response.error ?? "Failed to crop ROI TIFFs" });
       } else {
+        setCropProgressValue((current) => ({
+          ...current,
+          progress: 1,
+          message: `Finished ROI crop for Pos${selection.pos}`,
+        }));
         setCropState({
           type: "success",
           message: `Cropped ROI TIFFs for Pos${selection.pos}`,
@@ -601,6 +626,18 @@ export default function ViewerWorkspace({
     setCropping(false);
   }, [backend, selection, source, workspacePath]);
 
+  const handleCrop = useCallback(async () => {
+    if (!workspacePath || !source || !selection) return;
+
+    const exists = await onCheckRoiExists(workspacePath, selection.pos);
+    if (exists) {
+      setCropConfirmOpen(true);
+      return;
+    }
+
+    await performCrop();
+  }, [onCheckRoiExists, performCrop, selection, source, workspacePath]);
+
   const bboxPath = useMemo(() => {
     if (!selection) return "bbox/Pos{n}.csv";
     return `bbox/Pos${selection.pos}.csv`;
@@ -610,6 +647,7 @@ export default function ViewerWorkspace({
     if (!selection) return "roi/Pos{n}/Roi{m}.tif";
     return `roi/Pos${selection.pos}/Roi{m}.tif`;
   }, [selection]);
+  const cropProgressPercent = Math.round(cropProgress.progress * 100);
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -1016,6 +1054,80 @@ export default function ViewerWorkspace({
           </div>
         </main>
       </div>
+      {cropping ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+          <div
+            className="w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="crop-progress-title"
+          >
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h2 id="crop-progress-title" className="text-base font-medium text-foreground">
+                  Cropping ROI TIFFs
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {cropProgress.message}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <div className="h-3 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-150"
+                    style={{ width: `${cropProgressPercent}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Workspace is locked until crop completes.</span>
+                  <span>{cropProgressPercent}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {cropConfirmOpen && selection ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 px-4">
+          <div
+            className="w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="crop-confirm-title"
+          >
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h2 id="crop-confirm-title" className="text-base font-medium text-foreground">
+                  ROI Output Already Exists
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {`roi/Pos${selection.pos} already exists. Continuing will replace the existing cropped ROI files for this position.`}
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => setCropConfirmOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => {
+                    setCropConfirmOpen(false);
+                    void performCrop();
+                  }}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
