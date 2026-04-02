@@ -230,6 +230,156 @@ describe("websocket backend", () => {
     });
   });
 
+  test("loads annotation labels through the websocket backend", async () => {
+    const backend = createWebSocketBackend({ url: "ws://example.test" });
+    const promise = backend.loadAnnotationLabels("/tmp/workspace");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const socket = FakeWebSocket.instance;
+    expect(socket).not.toBeNull();
+    const sent = JSON.parse(socket!.sent[0] ?? "{}") as {
+      id: string;
+      type: string;
+      payload: { workspacePath: string };
+    };
+
+    expect(sent.type).toBe("load_annotation_labels");
+    expect(sent.payload.workspacePath).toBe("/tmp/workspace");
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "load_annotation_labels_result",
+        payload: [
+          { id: "cell", name: "Cell", color: "#22c55e" },
+          { id: "debris", name: "Debris", color: "#f97316" },
+        ],
+      }),
+    });
+
+    await expect(promise).resolves.toEqual([
+      { id: "cell", name: "Cell", color: "#22c55e" },
+      { id: "debris", name: "Debris", color: "#f97316" },
+    ]);
+  });
+
+  test("loads ROI frame annotations through the websocket backend", async () => {
+    const backend = createWebSocketBackend({ url: "ws://example.test" });
+    const promise = backend.loadRoiFrameAnnotation("/tmp/workspace", {
+      pos: 2,
+      roi: 9,
+      channel: 1,
+      time: 4,
+      z: 0,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const socket = FakeWebSocket.instance;
+    expect(socket).not.toBeNull();
+    const sent = JSON.parse(socket!.sent[0] ?? "{}") as {
+      id: string;
+      type: string;
+      payload: {
+        workspacePath: string;
+        request: { pos: number; roi: number; channel: number; time: number; z: number };
+      };
+    };
+
+    expect(sent.type).toBe("load_roi_frame_annotation");
+    expect(sent.payload.workspacePath).toBe("/tmp/workspace");
+    expect(sent.payload.request).toEqual({
+      pos: 2,
+      roi: 9,
+      channel: 1,
+      time: 4,
+      z: 0,
+    });
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "load_roi_frame_annotation_result",
+        payload: {
+          annotation: {
+            classificationLabelId: "cell",
+            maskPath: "annotations/roi/Pos2/Roi9/C1_T4_Z0.png",
+            updatedAt: "2026-04-02T20:00:00Z",
+          },
+          maskBase64Png: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+        },
+      }),
+    });
+
+    await expect(promise).resolves.toEqual({
+      annotation: {
+        classificationLabelId: "cell",
+        maskPath: "annotations/roi/Pos2/Roi9/C1_T4_Z0.png",
+        updatedAt: "2026-04-02T20:00:00Z",
+      },
+      maskBase64Png: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+    });
+  });
+
+  test("saves ROI frame annotations through the websocket backend", async () => {
+    const backend = createWebSocketBackend({ url: "ws://example.test" });
+    const promise = backend.saveRoiFrameAnnotation(
+      "/tmp/workspace",
+      {
+        pos: 2,
+        roi: 9,
+        channel: 1,
+        time: 4,
+        z: 0,
+      },
+      {
+        classificationLabelId: "cell",
+        maskBase64Png: "ZmFrZS1wbmc=",
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const socket = FakeWebSocket.instance;
+    expect(socket).not.toBeNull();
+    const sent = JSON.parse(socket!.sent[0] ?? "{}") as {
+      id: string;
+      type: string;
+      payload: {
+        workspacePath: string;
+        request: { pos: number; roi: number; channel: number; time: number; z: number };
+        annotation: { classificationLabelId: string; maskBase64Png: string };
+      };
+    };
+
+    expect(sent.type).toBe("save_roi_frame_annotation");
+    expect(sent.payload.workspacePath).toBe("/tmp/workspace");
+    expect(sent.payload.request.roi).toBe(9);
+    expect(sent.payload.annotation).toEqual({
+      classificationLabelId: "cell",
+      maskBase64Png: "ZmFrZS1wbmc=",
+    });
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "save_roi_frame_annotation_result",
+        payload: {
+          classificationLabelId: "cell",
+          maskPath: "annotations/roi/Pos2/Roi9/C1_T4_Z0.png",
+          updatedAt: "2026-04-02T20:01:00Z",
+        },
+      }),
+    });
+
+    await expect(promise).resolves.toEqual({
+      classificationLabelId: "cell",
+      maskPath: "annotations/roi/Pos2/Roi9/C1_T4_Z0.png",
+      updatedAt: "2026-04-02T20:01:00Z",
+    });
+  });
+
   test("sends crop requests with the selected output format", async () => {
     const backend = createWebSocketBackend({ url: "ws://example.test" });
     const promise = backend.cropRoi(

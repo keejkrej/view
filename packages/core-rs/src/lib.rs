@@ -1,15 +1,17 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Cursor};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use nd2_rs::Nd2File;
+use png::{BitDepth, ColorType, Decoder as PngDecoder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tiff::decoder::{Decoder, DecodingResult};
 use tiff::encoder::{colortype, TiffEncoder};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use walkdir::WalkDir;
 
 const SAMPLE_SIZE: usize = 2048;
@@ -143,6 +145,12 @@ struct ScanRoiWorkspacePayload {
     workspace_path: String,
 }
 
+#[derive(Deserialize)]
+struct LoadAnnotationLabelsPayload {
+    #[serde(rename = "workspacePath")]
+    workspace_path: String,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 struct RoiFrameRequest {
     pos: u32,
@@ -158,6 +166,21 @@ struct LoadRoiFramePayload {
     workspace_path: String,
     request: RoiFrameRequest,
     contrast: Option<ContrastWindow>,
+}
+
+#[derive(Deserialize)]
+struct LoadRoiFrameAnnotationPayload {
+    #[serde(rename = "workspacePath")]
+    workspace_path: String,
+    request: RoiFrameRequest,
+}
+
+#[derive(Deserialize)]
+struct SaveRoiFrameAnnotationPayload {
+    #[serde(rename = "workspacePath")]
+    workspace_path: String,
+    request: RoiFrameRequest,
+    annotation: RoiFrameAnnotationPayload,
 }
 
 #[derive(Serialize)]
@@ -222,6 +245,52 @@ struct RoiPositionScan {
 #[derive(Serialize)]
 struct RoiWorkspaceScan {
     positions: Vec<RoiPositionScan>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct AnnotationLabel {
+    id: String,
+    name: String,
+    color: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoiFrameAnnotation {
+    classification_label_id: Option<String>,
+    mask_path: Option<String>,
+    updated_at: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoiFrameAnnotationPayload {
+    classification_label_id: Option<String>,
+    mask_base64_png: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadedRoiFrameAnnotation {
+    annotation: RoiFrameAnnotation,
+    mask_base64_png: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AnnotationLabelsFile {
+    Wrapped { labels: Vec<AnnotationLabel> },
+    Array(Vec<AnnotationLabel>),
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoiFrameAnnotationFile {
+    #[serde(default = "annotation_schema_version")]
+    schema_version: u32,
+    classification_label_id: Option<String>,
+    mask_file_name: Option<String>,
+    updated_at: String,
 }
 
 fn parse_pos_dir_name(name: &str) -> Option<u32> {
@@ -374,6 +443,56 @@ fn workspace_roi_index_path(root: &str, pos: u32) -> PathBuf {
     workspace_roi_pos_dir_path(root, pos).join("index.json")
 }
 
+fn workspace_annotations_dir_path(root: &str) -> PathBuf {
+    Path::new(root).join("annotations")
+}
+
+fn workspace_annotation_labels_path(root: &str) -> PathBuf {
+    workspace_annotations_dir_path(root).join("labels.json")
+}
+
+fn workspace_annotation_roi_dir_path(root: &str, request: &RoiFrameRequest) -> PathBuf {
+    workspace_annotations_dir_path(root)
+        .join("roi")
+        .join(format!("Pos{}", request.pos))
+        .join(format!("Roi{}", request.roi))
+}
+
+fn annotation_frame_stem(request: &RoiFrameRequest) -> String {
+    format!(
+        "C{}_T{}_Z{}",
+        request.channel, request.time, request.z
+    )
+}
+
+fn workspace_annotation_json_path(root: &str, request: &RoiFrameRequest) -> PathBuf {
+    workspace_annotation_roi_dir_path(root, request).join(format!("{}.json", annotation_frame_stem(request)))
+}
+
+fn workspace_annotation_mask_path(root: &str, request: &RoiFrameRequest) -> PathBuf {
+    workspace_annotation_roi_dir_path(root, request).join(format!("{}.png", annotation_frame_stem(request)))
+}
+
+fn annotation_schema_version() -> u32 {
+    1
+}
+
+fn path_to_forward_slash_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn workspace_relative_path(root: &str, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map(path_to_forward_slash_string)
+        .unwrap_or_else(|_| path_to_forward_slash_string(path))
+}
+
+fn current_timestamp() -> Result<String, String> {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|err| err.to_string())
+}
+
 fn roi_axis_values(count: u32) -> Vec<u32> {
     (0..count).collect()
 }
@@ -419,6 +538,254 @@ fn read_roi_index(workspace_path: &str, pos: u32) -> Result<RoiIndexFile, String
     }
 
     Ok(index)
+}
+
+fn read_annotation_labels(workspace_path: &str) -> Result<Vec<AnnotationLabel>, String> {
+    let path = workspace_annotation_labels_path(workspace_path);
+    let bytes =
+        fs::read(&path).map_err(|err| format!("Failed to read annotation labels at {}: {err}", path.display()))?;
+    let parsed = serde_json::from_slice::<AnnotationLabelsFile>(&bytes)
+        .map_err(|err| format!("{}: {err}", path.display()))?;
+    let labels = match parsed {
+        AnnotationLabelsFile::Wrapped { labels } => labels,
+        AnnotationLabelsFile::Array(labels) => labels,
+    };
+
+    let mut ids = BTreeSet::new();
+    for label in &labels {
+        if label.id.trim().is_empty() {
+            return Err(format!("Annotation labels at {} contain an empty id", path.display()));
+        }
+        if label.name.trim().is_empty() {
+            return Err(format!(
+                "Annotation labels at {} contain an empty name for id '{}'",
+                path.display(),
+                label.id
+            ));
+        }
+        if label.color.trim().is_empty() {
+            return Err(format!(
+                "Annotation labels at {} contain an empty color for id '{}'",
+                path.display(),
+                label.id
+            ));
+        }
+        if !ids.insert(label.id.clone()) {
+            return Err(format!(
+                "Annotation labels at {} contain duplicate id '{}'",
+                path.display(),
+                label.id
+            ));
+        }
+    }
+
+    Ok(labels)
+}
+
+fn decode_png_mask(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+    let decoder = PngDecoder::new(Cursor::new(bytes));
+    let mut reader = decoder.read_info().map_err(|err| err.to_string())?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).map_err(|err| err.to_string())?;
+    if info.bit_depth != BitDepth::Eight {
+        return Err(format!(
+            "Unsupported annotation mask bit depth {:?}; expected 8-bit PNG",
+            info.bit_depth
+        ));
+    }
+
+    let data = &buffer[..info.buffer_size()];
+    let mut mask = Vec::with_capacity((info.width * info.height) as usize);
+    match info.color_type {
+        ColorType::Grayscale => mask.extend_from_slice(data),
+        ColorType::GrayscaleAlpha => {
+            for chunk in data.chunks_exact(2) {
+                mask.push(chunk[0]);
+            }
+        }
+        ColorType::Rgb => {
+            for chunk in data.chunks_exact(3) {
+                mask.push(chunk[0]);
+            }
+        }
+        ColorType::Rgba => {
+            for chunk in data.chunks_exact(4) {
+                mask.push(chunk[0]);
+            }
+        }
+        ColorType::Indexed => {
+            return Err("Indexed PNG masks are not supported".to_string());
+        }
+    }
+
+    Ok((info.width, info.height, mask))
+}
+
+fn validate_mask_pixels(mask: &[u8], width: u32, height: u32, label_count: usize) -> Result<(), String> {
+    let expected = (width as usize).saturating_mul(height as usize);
+    if mask.len() != expected {
+        return Err(format!(
+            "Annotation mask pixel count {} does not match expected frame size {}",
+            mask.len(), expected
+        ));
+    }
+
+    let max_allowed = label_count.min(u8::MAX as usize) as u8;
+    if let Some(value) = mask.iter().copied().find(|value| *value > max_allowed) {
+        return Err(format!(
+            "Annotation mask contains class index {} beyond configured label range {}",
+            value, max_allowed
+        ));
+    }
+
+    Ok(())
+}
+
+fn empty_annotation() -> RoiFrameAnnotation {
+    RoiFrameAnnotation {
+        classification_label_id: None,
+        mask_path: None,
+        updated_at: None,
+    }
+}
+
+fn load_annotation_labels(workspace_path: String) -> Result<Vec<AnnotationLabel>, String> {
+    read_annotation_labels(&workspace_path)
+}
+
+fn load_roi_frame_annotation(
+    workspace_path: String,
+    request: RoiFrameRequest,
+) -> Result<LoadedRoiFrameAnnotation, String> {
+    let index = read_roi_index(&workspace_path, request.pos)?;
+    let roi = index
+        .rois
+        .iter()
+        .find(|entry| entry.roi == request.roi)
+        .ok_or_else(|| format!("ROI {} not found for Pos{}", request.roi, request.pos))?;
+    let annotation_path = workspace_annotation_json_path(&workspace_path, &request);
+    if !annotation_path.is_file() {
+        return Ok(LoadedRoiFrameAnnotation {
+            annotation: empty_annotation(),
+            mask_base64_png: None,
+        });
+    }
+
+    let bytes = fs::read(&annotation_path).map_err(|err| err.to_string())?;
+    let annotation = serde_json::from_slice::<RoiFrameAnnotationFile>(&bytes)
+        .map_err(|err| format!("{}: {err}", annotation_path.display()))?;
+
+    let (mask_path, mask_base64_png) = if let Some(mask_file_name) = annotation.mask_file_name.clone() {
+        let path = workspace_annotation_roi_dir_path(&workspace_path, &request).join(mask_file_name);
+        let mask_bytes = fs::read(&path).map_err(|err| err.to_string())?;
+        let (mask_width, mask_height, _) = decode_png_mask(&mask_bytes)?;
+        if mask_width != roi.bbox.w || mask_height != roi.bbox.h {
+            return Err(format!(
+                "Annotation mask {} dimensions {}x{} do not match ROI {} frame {}x{}",
+                path.display(),
+                mask_width,
+                mask_height,
+                roi.roi,
+                roi.bbox.w,
+                roi.bbox.h
+            ));
+        }
+        (
+            Some(workspace_relative_path(&workspace_path, &path)),
+            Some(BASE64_STANDARD.encode(mask_bytes)),
+        )
+    } else {
+        (None, None)
+    };
+
+    Ok(LoadedRoiFrameAnnotation {
+        annotation: RoiFrameAnnotation {
+            classification_label_id: annotation.classification_label_id,
+            mask_path,
+            updated_at: Some(annotation.updated_at),
+        },
+        mask_base64_png,
+    })
+}
+
+fn save_roi_frame_annotation(
+    workspace_path: String,
+    request: RoiFrameRequest,
+    annotation: RoiFrameAnnotationPayload,
+) -> Result<RoiFrameAnnotation, String> {
+    let index = read_roi_index(&workspace_path, request.pos)?;
+    let roi = index
+        .rois
+        .iter()
+        .find(|entry| entry.roi == request.roi)
+        .ok_or_else(|| format!("ROI {} not found for Pos{}", request.roi, request.pos))?;
+    let labels = read_annotation_labels(&workspace_path)?;
+    let label_count = labels.len();
+
+    if let Some(label_id) = annotation.classification_label_id.as_ref() {
+        if !labels.iter().any(|label| label.id == *label_id) {
+            return Err(format!("Unknown annotation label id '{}'", label_id));
+        }
+    }
+
+    let annotation_dir = workspace_annotation_roi_dir_path(&workspace_path, &request);
+    let annotation_path = workspace_annotation_json_path(&workspace_path, &request);
+    let mask_path = workspace_annotation_mask_path(&workspace_path, &request);
+
+    if annotation.classification_label_id.is_none() && annotation.mask_base64_png.is_none() {
+        if annotation_path.exists() {
+            fs::remove_file(&annotation_path).map_err(|err| err.to_string())?;
+        }
+        if mask_path.exists() {
+            fs::remove_file(&mask_path).map_err(|err| err.to_string())?;
+        }
+        return Ok(empty_annotation());
+    }
+
+    fs::create_dir_all(&annotation_dir).map_err(|err| err.to_string())?;
+
+    let mask_file_name = if let Some(mask_base64_png) = annotation.mask_base64_png.as_ref() {
+        let mask_bytes = BASE64_STANDARD
+            .decode(mask_base64_png)
+            .map_err(|err| format!("Invalid annotation PNG payload: {err}"))?;
+        let (mask_width, mask_height, mask_pixels) = decode_png_mask(&mask_bytes)?;
+        if mask_width != roi.bbox.w || mask_height != roi.bbox.h {
+            return Err(format!(
+                "Annotation mask dimensions {}x{} do not match ROI {} frame {}x{}",
+                mask_width, mask_height, roi.roi, roi.bbox.w, roi.bbox.h
+            ));
+        }
+        validate_mask_pixels(&mask_pixels, mask_width, mask_height, label_count)?;
+        fs::write(&mask_path, mask_bytes).map_err(|err| err.to_string())?;
+        Some(
+            mask_path
+                .file_name()
+                .ok_or_else(|| "Failed to resolve annotation mask file name".to_string())?
+                .to_string_lossy()
+                .to_string(),
+        )
+    } else {
+        if mask_path.exists() {
+            fs::remove_file(&mask_path).map_err(|err| err.to_string())?;
+        }
+        None
+    };
+
+    let updated_at = current_timestamp()?;
+    let annotation_file = RoiFrameAnnotationFile {
+        schema_version: annotation_schema_version(),
+        classification_label_id: annotation.classification_label_id.clone(),
+        mask_file_name: mask_file_name.clone(),
+        updated_at: updated_at.clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&annotation_file).map_err(|err| err.to_string())?;
+    fs::write(&annotation_path, bytes).map_err(|err| err.to_string())?;
+
+    Ok(RoiFrameAnnotation {
+        classification_label_id: annotation.classification_label_id,
+        mask_path: mask_file_name.map(|_| workspace_relative_path(&workspace_path, &mask_path)),
+        updated_at: Some(updated_at),
+    })
 }
 
 fn parse_bbox_csv(path: &Path) -> Result<Vec<RoiBbox>, String> {
@@ -1198,6 +1565,16 @@ where
                 Err(message) => error_response(id, message),
             }
         }
+        "load_annotation_labels" => {
+            let payload = serde_json::from_value::<LoadAnnotationLabelsPayload>(envelope.payload)
+                .map_err(|err| err.to_string());
+            match catch_backend_panic(|| {
+                payload.and_then(|payload| load_annotation_labels(payload.workspace_path))
+            }) {
+                Ok(labels) => ok_response(id, "load_annotation_labels_result", labels),
+                Err(message) => error_response(id, message),
+            }
+        }
         "load_frame" => {
             let payload = serde_json::from_value::<LoadFramePayload>(envelope.payload)
                 .map_err(|err| err.to_string());
@@ -1243,6 +1620,34 @@ where
                 })
             }) {
                 Ok(frame) => ok_response(id, "load_roi_frame_result", frame),
+                Err(message) => error_response(id, message),
+            }
+        }
+        "load_roi_frame_annotation" => {
+            let payload = serde_json::from_value::<LoadRoiFrameAnnotationPayload>(envelope.payload)
+                .map_err(|err| err.to_string());
+            match catch_backend_panic(|| {
+                payload.and_then(|payload| {
+                    load_roi_frame_annotation(payload.workspace_path, payload.request)
+                })
+            }) {
+                Ok(annotation) => ok_response(id, "load_roi_frame_annotation_result", annotation),
+                Err(message) => error_response(id, message),
+            }
+        }
+        "save_roi_frame_annotation" => {
+            let payload = serde_json::from_value::<SaveRoiFrameAnnotationPayload>(envelope.payload)
+                .map_err(|err| err.to_string());
+            match catch_backend_panic(|| {
+                payload.and_then(|payload| {
+                    save_roi_frame_annotation(
+                        payload.workspace_path,
+                        payload.request,
+                        payload.annotation,
+                    )
+                })
+            }) {
+                Ok(annotation) => ok_response(id, "save_roi_frame_annotation_result", annotation),
                 Err(message) => error_response(id, message),
             }
         }
@@ -1304,14 +1709,19 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use base64::prelude::{Engine as _, BASE64_STANDARD};
+    use png::{BitDepth, ColorType, Encoder as PngEncoder};
     use tiff::decoder::{Decoder, DecodingResult};
     use tiff::encoder::{colortype, TiffEncoder};
 
     use super::{
-        auto_contrast, catch_backend_panic, crop_roi, load_roi_frame, parse_bbox_csv,
-        parse_pos_dir_name, parse_tiff_name, read_roi_index, save_bbox, scan_roi_workspace,
-        workspace_bbox_csv_path, workspace_roi_index_path, workspace_roi_tiff_path,
-        ContrastWindow, CropOutputFormat, RoiFrameRequest, RoiIndexFile, ViewerSource,
+        auto_contrast, catch_backend_panic, crop_roi, load_annotation_labels,
+        load_roi_frame, load_roi_frame_annotation, parse_bbox_csv, parse_pos_dir_name,
+        parse_tiff_name, read_roi_index, save_bbox, save_roi_frame_annotation,
+        scan_roi_workspace, workspace_annotation_json_path, workspace_annotation_labels_path,
+        workspace_annotation_mask_path, workspace_bbox_csv_path, workspace_roi_index_path,
+        workspace_roi_tiff_path, ContrastWindow, CropOutputFormat, RoiFrameAnnotationPayload,
+        RoiFrameRequest, RoiIndexFile, ViewerSource,
     };
 
     fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -1338,6 +1748,16 @@ mod tests {
                 .write_image::<colortype::Gray16>(width, height, page)
                 .unwrap();
         }
+    }
+
+    fn write_test_png_mask(path: &PathBuf, width: u32, height: u32, data: &[u8]) {
+        let file = fs::File::create(path).unwrap();
+        let writer = BufWriter::new(file);
+        let mut encoder = PngEncoder::new(writer, width, height);
+        encoder.set_color(ColorType::Grayscale);
+        encoder.set_depth(BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(data).unwrap();
     }
 
     #[test]
@@ -1476,6 +1896,31 @@ mod tests {
         assert_eq!(scan.positions[0].channels, vec![0, 1]);
         assert_eq!(scan.positions[0].z_slices, vec![0]);
         assert_eq!(scan.positions[0].rois[0].roi, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn loads_annotation_labels_from_wrapped_json() {
+        let root = unique_temp_dir("view-annotation-labels");
+        let annotations_dir = root.join("annotations");
+        fs::create_dir_all(&annotations_dir).unwrap();
+        fs::write(
+            workspace_annotation_labels_path(&root.to_string_lossy()),
+            serde_json::json!({
+                "labels": [
+                    { "id": "cell", "name": "Cell", "color": "#22c55e" },
+                    { "id": "debris", "name": "Debris", "color": "#f97316" }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let labels = load_annotation_labels(root.to_string_lossy().to_string()).unwrap();
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0].id, "cell");
+        assert_eq!(labels[1].color, "#f97316");
 
         let _ = fs::remove_dir_all(root);
     }
@@ -1654,6 +2099,179 @@ mod tests {
         assert_eq!(frame.width, 2);
         assert_eq!(frame.height, 2);
         assert_eq!(frame.data, vec![31, 32, 33, 34]);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_and_loads_roi_frame_annotations_with_png_masks() {
+        let root = unique_temp_dir("view-roi-annotation-roundtrip");
+        let workspace = root.join("workspace");
+        let roi_dir = workspace.join("roi").join("Pos3");
+        let annotations_dir = workspace.join("annotations");
+        fs::create_dir_all(&roi_dir).unwrap();
+        fs::create_dir_all(&annotations_dir).unwrap();
+
+        let index = RoiIndexFile {
+            position: 3,
+            axis_order: "TCZYX".to_string(),
+            page_order: vec!["t".to_string(), "c".to_string(), "z".to_string()],
+            time_count: 1,
+            channel_count: 2,
+            z_count: 1,
+            source: ViewerSource::Nd2 {
+                path: "/tmp/source.nd2".to_string(),
+            },
+            rois: vec![super::RoiIndexEntry {
+                roi: 8,
+                file_name: "Roi8.tif".to_string(),
+                bbox: super::RoiBbox {
+                    roi: 8,
+                    x: 20,
+                    y: 30,
+                    w: 2,
+                    h: 2,
+                },
+                shape: [1, 2, 1, 2, 2],
+            }],
+        };
+        fs::write(
+            roi_dir.join("index.json"),
+            serde_json::to_vec_pretty(&index).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            workspace_annotation_labels_path(&workspace.to_string_lossy()),
+            serde_json::json!([
+                { "id": "cell", "name": "Cell", "color": "#22c55e" },
+                { "id": "debris", "name": "Debris", "color": "#f97316" }
+            ])
+            .to_string(),
+        )
+        .unwrap();
+
+        let mask_path = root.join("mask.png");
+        write_test_png_mask(&mask_path, 2, 2, &[0, 1, 2, 1]);
+        let mask_bytes = fs::read(&mask_path).unwrap();
+
+        let request = RoiFrameRequest {
+            pos: 3,
+            roi: 8,
+            channel: 1,
+            time: 0,
+            z: 0,
+        };
+
+        let saved = save_roi_frame_annotation(
+            workspace.to_string_lossy().to_string(),
+            request.clone(),
+            RoiFrameAnnotationPayload {
+                classification_label_id: Some("cell".to_string()),
+                mask_base64_png: Some(BASE64_STANDARD.encode(mask_bytes.clone())),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(saved.classification_label_id, Some("cell".to_string()));
+        assert_eq!(
+            saved.mask_path,
+            Some("annotations/roi/Pos3/Roi8/C1_T0_Z0.png".to_string())
+        );
+        assert!(saved.updated_at.is_some());
+        assert!(workspace_annotation_json_path(&workspace.to_string_lossy(), &request).is_file());
+        assert!(workspace_annotation_mask_path(&workspace.to_string_lossy(), &request).is_file());
+
+        let loaded = load_roi_frame_annotation(workspace.to_string_lossy().to_string(), request.clone()).unwrap();
+        assert_eq!(
+            loaded.annotation.classification_label_id,
+            Some("cell".to_string())
+        );
+        assert_eq!(
+            loaded.annotation.mask_path,
+            Some("annotations/roi/Pos3/Roi8/C1_T0_Z0.png".to_string())
+        );
+        assert_eq!(loaded.mask_base64_png, Some(BASE64_STANDARD.encode(mask_bytes)));
+
+        let cleared = save_roi_frame_annotation(
+            workspace.to_string_lossy().to_string(),
+            request.clone(),
+            RoiFrameAnnotationPayload {
+                classification_label_id: None,
+                mask_base64_png: None,
+            },
+        )
+        .unwrap();
+        assert!(cleared.classification_label_id.is_none());
+        assert!(cleared.mask_path.is_none());
+        assert!(cleared.updated_at.is_none());
+        assert!(!workspace_annotation_json_path(&workspace.to_string_lossy(), &request).exists());
+        assert!(!workspace_annotation_mask_path(&workspace.to_string_lossy(), &request).exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn save_roi_frame_annotation_rejects_masks_with_unknown_class_indexes() {
+        let root = unique_temp_dir("view-roi-annotation-invalid-mask");
+        let workspace = root.join("workspace");
+        let roi_dir = workspace.join("roi").join("Pos1");
+        let annotations_dir = workspace.join("annotations");
+        fs::create_dir_all(&roi_dir).unwrap();
+        fs::create_dir_all(&annotations_dir).unwrap();
+
+        let index = RoiIndexFile {
+            position: 1,
+            axis_order: "TCZYX".to_string(),
+            page_order: vec!["t".to_string(), "c".to_string(), "z".to_string()],
+            time_count: 1,
+            channel_count: 1,
+            z_count: 1,
+            source: ViewerSource::Tif {
+                path: "/tmp/images".to_string(),
+            },
+            rois: vec![super::RoiIndexEntry {
+                roi: 0,
+                file_name: "Roi0.tif".to_string(),
+                bbox: super::RoiBbox {
+                    roi: 0,
+                    x: 0,
+                    y: 0,
+                    w: 2,
+                    h: 2,
+                },
+                shape: [1, 1, 1, 2, 2],
+            }],
+        };
+        fs::write(
+            roi_dir.join("index.json"),
+            serde_json::to_vec_pretty(&index).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            workspace_annotation_labels_path(&workspace.to_string_lossy()),
+            serde_json::json!([{ "id": "cell", "name": "Cell", "color": "#22c55e" }]).to_string(),
+        )
+        .unwrap();
+
+        let mask_path = root.join("bad-mask.png");
+        write_test_png_mask(&mask_path, 2, 2, &[0, 2, 0, 0]);
+        let error = save_roi_frame_annotation(
+            workspace.to_string_lossy().to_string(),
+            RoiFrameRequest {
+                pos: 1,
+                roi: 0,
+                channel: 0,
+                time: 0,
+                z: 0,
+            },
+            RoiFrameAnnotationPayload {
+                classification_label_id: Some("cell".to_string()),
+                mask_base64_png: Some(BASE64_STANDARD.encode(fs::read(mask_path).unwrap())),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("class index 2"));
 
         let _ = fs::remove_dir_all(root);
     }

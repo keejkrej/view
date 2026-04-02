@@ -1,8 +1,12 @@
 import { Effect } from "effect";
 
 import type {
+  AnnotationLabel,
   ContrastWindow,
   FrameResult,
+  LoadedRoiFrameAnnotation,
+  RoiFrameAnnotation,
+  RoiFrameAnnotationPayload,
   RoiFrameRequest,
   RoiWorkspaceScan,
   ViewerBackend,
@@ -54,6 +58,16 @@ export function scanRoiWorkspaceEffect(backend: ViewerBackend, workspacePath: st
   }).pipe(
     Effect.map((scan) => ({ scan })),
     Effect.withSpan("viewer.scan-roi-workspace"),
+  );
+}
+
+export function loadAnnotationLabelsEffect(backend: ViewerBackend, workspacePath: string) {
+  return Effect.tryPromise({
+    try: () => backend.loadAnnotationLabels(workspacePath),
+    catch: (error) => toError(error, "Failed to load annotation labels"),
+  }).pipe(
+    Effect.map((labels: AnnotationLabel[]) => ({ labels })),
+    Effect.withSpan("viewer.load-annotation-labels"),
   );
 }
 
@@ -152,6 +166,41 @@ export function loadRoiFrameEffect(
       };
     }),
     Effect.withSpan("viewer.load-roi-frame"),
+  );
+}
+
+export function loadRoiFrameAnnotationEffect(
+  backend: ViewerBackend,
+  workspacePath: string,
+  request: RoiFrameRequest,
+) {
+  return Effect.tryPromise({
+    try: () => backend.loadRoiFrameAnnotation(workspacePath, request),
+    catch: (error) => toError(error, "Failed to load ROI frame annotation"),
+  }).pipe(
+    Effect.map((loaded: LoadedRoiFrameAnnotation) => ({ loaded })),
+    Effect.withSpan("viewer.load-roi-frame-annotation"),
+  );
+}
+
+export function saveRoiFrameAnnotationEffect(
+  backend: ViewerBackend,
+  {
+    workspacePath,
+    request,
+    annotation,
+  }: {
+    workspacePath: string;
+    request: RoiFrameRequest;
+    annotation: RoiFrameAnnotationPayload;
+  },
+) {
+  return Effect.tryPromise({
+    try: () => backend.saveRoiFrameAnnotation(workspacePath, request, annotation),
+    catch: (error) => toError(error, "Failed to save ROI frame annotation"),
+  }).pipe(
+    Effect.map((saved: RoiFrameAnnotation) => ({ saved })),
+    Effect.withSpan("viewer.save-roi-frame-annotation"),
   );
 }
 

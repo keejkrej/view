@@ -37,6 +37,28 @@ export interface RoiWorkspaceScan {
   positions: RoiPositionScan[];
 }
 
+export interface AnnotationLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface RoiFrameAnnotation {
+  classificationLabelId: string | null;
+  maskPath: string | null;
+  updatedAt: string | null;
+}
+
+export interface RoiFrameAnnotationPayload {
+  classificationLabelId: string | null;
+  maskBase64Png: string | null;
+}
+
+export interface LoadedRoiFrameAnnotation {
+  annotation: RoiFrameAnnotation;
+  maskBase64Png: string | null;
+}
+
 export interface TifSource {
   kind: "tif";
   path: string;
@@ -141,11 +163,21 @@ export interface CropRoiProgressEvent {
 
 export interface ViewerBackend extends ViewerDataSource {
   scanRoiWorkspace(workspacePath: string): Promise<RoiWorkspaceScan>;
+  loadAnnotationLabels(workspacePath: string): Promise<AnnotationLabel[]>;
   loadRoiFrame(
     workspacePath: string,
     request: RoiFrameRequest,
     options?: LoadFrameOptions,
   ): Promise<FrameResult>;
+  loadRoiFrameAnnotation(
+    workspacePath: string,
+    request: RoiFrameRequest,
+  ): Promise<LoadedRoiFrameAnnotation>;
+  saveRoiFrameAnnotation(
+    workspacePath: string,
+    request: RoiFrameRequest,
+    annotation: RoiFrameAnnotationPayload,
+  ): Promise<RoiFrameAnnotation>;
   saveBbox(workspacePath: string, source: ViewerSource, pos: number, csv: string): Promise<SaveBboxResponse>;
   cropRoi(
     workspacePath: string,

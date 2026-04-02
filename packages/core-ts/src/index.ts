@@ -30,6 +30,7 @@ export {
   toggleCellIds,
 } from "./utils";
 export type {
+  AnnotationLabel,
   ContrastWindow,
   CropOutputFormat,
   CropRoiProgressEvent,
@@ -37,10 +38,13 @@ export type {
   ExcludedCellIdsByPosition,
   FrameRequest,
   FrameResult,
+  LoadedRoiFrameAnnotation,
   LoadFrameOptions,
   Nd2Source,
   PixelArray,
   PixelType,
+  RoiFrameAnnotation,
+  RoiFrameAnnotationPayload,
   RoiBbox,
   RoiFrameRequest,
   RoiIndexEntry,

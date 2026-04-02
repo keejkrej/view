@@ -1,12 +1,16 @@
 import { Effect } from "effect";
 
 import type {
+  AnnotationLabel,
   CropOutputFormat,
   CropRoiProgressEvent,
   CropRoiResponse,
   FrameRequest,
   FrameResult,
+  LoadedRoiFrameAnnotation,
   LoadFrameOptions,
+  RoiFrameAnnotation,
+  RoiFrameAnnotationPayload,
   RoiFrameRequest,
   RoiWorkspaceScan,
   SaveBboxResponse,
@@ -92,6 +96,12 @@ class WebSocketBackend implements ViewerBackend {
     );
   }
 
+  async loadAnnotationLabels(workspacePath: string): Promise<AnnotationLabel[]> {
+    return Effect.runPromise(
+      this.requestEffect<AnnotationLabel[]>("load_annotation_labels", { workspacePath }),
+    );
+  }
+
   async loadFrame(
     source: ViewerSource,
     request: FrameRequest,
@@ -136,6 +146,32 @@ class WebSocketBackend implements ViewerBackend {
       suggestedContrast: payload.suggestedContrast,
       appliedContrast: payload.appliedContrast,
     };
+  }
+
+  async loadRoiFrameAnnotation(
+    workspacePath: string,
+    request: RoiFrameRequest,
+  ): Promise<LoadedRoiFrameAnnotation> {
+    return Effect.runPromise(
+      this.requestEffect<LoadedRoiFrameAnnotation>("load_roi_frame_annotation", {
+        workspacePath,
+        request,
+      }),
+    );
+  }
+
+  async saveRoiFrameAnnotation(
+    workspacePath: string,
+    request: RoiFrameRequest,
+    annotation: RoiFrameAnnotationPayload,
+  ): Promise<RoiFrameAnnotation> {
+    return Effect.runPromise(
+      this.requestEffect<RoiFrameAnnotation>("save_roi_frame_annotation", {
+        workspacePath,
+        request,
+        annotation,
+      }),
+    );
   }
 
   async saveBbox(
