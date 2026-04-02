@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@view/core-ts": ["../core-ts/src/index.ts"],
+      "@view/ui": ["../ui/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

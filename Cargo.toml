@@ -1,6 +1,6 @@
 [workspace]
 members = [
   "packages/core-rs",
-  "apps/view-rs/src-tauri",
+  "apps/tauri/src-tauri",
 ]
 resolver = "2"

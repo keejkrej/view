@@ -5,19 +5,19 @@
   "packageManager": "bun@1.2.22",
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "apps/*/web"
+    "apps/*"
   ],
   "scripts": {
-    "build": "bun run build:core-ts && bun run build:canvas && bun run build:view-rs:web",
+    "build": "bun run build:core-ts && bun run build:align && bun run build:annotate && bun run build:tauri && bun run build:annotate-mock",
     "build:core-ts": "bun run --cwd packages/core-ts build",
-    "build:canvas": "bun run --cwd packages/canvas build",
-    "build:view-rs:web": "bun run --cwd apps/view-rs build:renderer",
-    "build:view-py:web": "bun run --cwd apps/view-py/web build",
-    "check:tauri": "bun run --cwd apps/view-rs check:tauri",
-    "dev": "bun run --cwd apps/view-rs dev",
-    "dev:view-py:web": "bun run --cwd apps/view-py/web dev",
-    "test": "bun run --cwd packages/core-ts test && bun run --cwd packages/canvas test",
-    "typecheck": "bun run --cwd packages/core-ts typecheck && bun run --cwd packages/canvas typecheck && bun run --cwd apps/view-rs typecheck && bun run --cwd apps/view-py/web typecheck"
+    "build:align": "bun run --cwd packages/align build",
+    "build:annotate": "bun run --cwd packages/annotate build",
+    "build:tauri": "bun run --cwd apps/tauri build:renderer",
+    "build:annotate-mock": "bun run --cwd apps/annotate-mock build",
+    "check:tauri": "bun run --cwd apps/tauri check:tauri",
+    "dev": "bun run --cwd apps/tauri dev",
+    "dev:annotate-mock": "bun run --cwd apps/annotate-mock dev",
+    "test": "bun run --cwd packages/core-ts test && bun run --cwd packages/align test && bun run --cwd packages/annotate test",
+    "typecheck": "bun run --cwd packages/core-ts typecheck && bun run --cwd packages/align typecheck && bun run --cwd packages/annotate typecheck && bun run --cwd apps/tauri typecheck && bun run --cwd apps/annotate-mock typecheck"
   }
 }

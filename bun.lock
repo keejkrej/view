@@ -5,12 +5,13 @@
     "": {
       "name": "view",
     },
-    "apps/view-py/web": {
-      "name": "@view/view-py-web",
+    "apps/annotate-mock": {
+      "name": "@view/annotate-mock",
       "version": "0.1.0",
       "dependencies": {
-        "@view/canvas": "workspace:*",
+        "@view/annotate": "workspace:*",
         "@view/core-ts": "workspace:*",
+        "@view/ui": "workspace:*",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
       },
@@ -24,13 +25,14 @@
         "vite": "^6.3.0",
       },
     },
-    "apps/view-rs": {
-      "name": "@view/view-rs",
+    "apps/tauri": {
+      "name": "@view/tauri",
       "version": "0.1.0",
       "dependencies": {
         "@base-ui/react": "^1.3.0",
         "@tauri-apps/api": "^2.8.0",
-        "@view/canvas": "workspace:*",
+        "@view/align": "workspace:*",
+        "@view/annotate": "workspace:*",
         "@view/core-ts": "workspace:*",
         "@view/ui": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -52,11 +54,36 @@
         "vite": "^6.3.0",
       },
     },
-    "packages/canvas": {
-      "name": "@view/canvas",
+    "packages/align": {
+      "name": "@view/align",
       "version": "0.1.0",
       "dependencies": {
         "@view/core-ts": "workspace:*",
+        "react": "^18.3.1",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "@types/node": "^24.0.0",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "@vitejs/plugin-react": "^4.7.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "typescript": "^5.6.3",
+        "vite": "^6.3.0",
+      },
+      "peerDependencies": {
+        "react": "^18.3.1 || ^19.0.0",
+        "react-dom": "^18.3.1 || ^19.0.0",
+      },
+    },
+    "packages/annotate": {
+      "name": "@view/annotate",
+      "version": "0.1.0",
+      "dependencies": {
+        "@view/core-ts": "workspace:*",
+        "@view/ui": "workspace:*",
+        "lucide-react": "^1.6.0",
         "react": "^18.3.1",
       },
       "devDependencies": {
@@ -353,15 +380,17 @@
 
     "@types/react-dom": ["@types/react-dom@18.3.7", "", { "peerDependencies": { "@types/react": "^18.0.0" } }, "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ=="],
 
-    "@view/canvas": ["@view/canvas@workspace:packages/canvas"],
+    "@view/align": ["@view/align@workspace:packages/align"],
+
+    "@view/annotate": ["@view/annotate@workspace:packages/annotate"],
+
+    "@view/annotate-mock": ["@view/annotate-mock@workspace:apps/annotate-mock"],
 
     "@view/core-ts": ["@view/core-ts@workspace:packages/core-ts"],
 
+    "@view/tauri": ["@view/tauri@workspace:apps/tauri"],
+
     "@view/ui": ["@view/ui@workspace:packages/ui"],
-
-    "@view/view-py-web": ["@view/view-py-web@workspace:apps/view-py/web"],
-
-    "@view/view-rs": ["@view/view-rs@workspace:apps/view-rs"],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@4.7.0", "", { "dependencies": { "@babel/core": "^7.28.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-beta.27", "@types/babel__core": "^7.20.5", "react-refresh": "^0.17.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0" } }, "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA=="],
 
