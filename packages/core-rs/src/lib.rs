@@ -151,6 +151,13 @@ struct LoadAnnotationLabelsPayload {
     workspace_path: String,
 }
 
+#[derive(Deserialize)]
+struct SaveAnnotationLabelsPayload {
+    #[serde(rename = "workspacePath")]
+    workspace_path: String,
+    labels: Vec<AnnotationLabel>,
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 struct RoiFrameRequest {
     pos: u32,
@@ -276,7 +283,7 @@ struct LoadedRoiFrameAnnotation {
     mask_base64_png: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 enum AnnotationLabelsFile {
     Wrapped { labels: Vec<AnnotationLabel> },
@@ -542,8 +549,16 @@ fn read_roi_index(workspace_path: &str, pos: u32) -> Result<RoiIndexFile, String
 
 fn read_annotation_labels(workspace_path: &str) -> Result<Vec<AnnotationLabel>, String> {
     let path = workspace_annotation_labels_path(workspace_path);
-    let bytes =
-        fs::read(&path).map_err(|err| format!("Failed to read annotation labels at {}: {err}", path.display()))?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read annotation labels at {}: {error}",
+                path.display()
+            ))
+        }
+    };
     let parsed = serde_json::from_slice::<AnnotationLabelsFile>(&bytes)
         .map_err(|err| format!("{}: {err}", path.display()))?;
     let labels = match parsed {
@@ -551,8 +566,14 @@ fn read_annotation_labels(workspace_path: &str) -> Result<Vec<AnnotationLabel>, 
         AnnotationLabelsFile::Array(labels) => labels,
     };
 
+    validate_annotation_labels(&labels, &path)?;
+
+    Ok(labels)
+}
+
+fn validate_annotation_labels(labels: &[AnnotationLabel], path: &Path) -> Result<(), String> {
     let mut ids = BTreeSet::new();
-    for label in &labels {
+    for label in labels {
         if label.id.trim().is_empty() {
             return Err(format!("Annotation labels at {} contain an empty id", path.display()));
         }
@@ -579,7 +600,7 @@ fn read_annotation_labels(workspace_path: &str) -> Result<Vec<AnnotationLabel>, 
         }
     }
 
-    Ok(labels)
+    Ok(())
 }
 
 fn decode_png_mask(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
@@ -651,6 +672,32 @@ fn empty_annotation() -> RoiFrameAnnotation {
 
 fn load_annotation_labels(workspace_path: String) -> Result<Vec<AnnotationLabel>, String> {
     read_annotation_labels(&workspace_path)
+}
+
+fn save_annotation_labels(
+    workspace_path: String,
+    labels: Vec<AnnotationLabel>,
+) -> Result<Vec<AnnotationLabel>, String> {
+    let path = workspace_annotation_labels_path(&workspace_path);
+    validate_annotation_labels(&labels, &path)?;
+
+    if labels.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path).map_err(|err| err.to_string())?;
+        }
+        return Ok(Vec::new());
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+
+    let bytes = serde_json::to_vec_pretty(&AnnotationLabelsFile::Wrapped {
+        labels: labels.clone(),
+    })
+    .map_err(|err| err.to_string())?;
+    fs::write(&path, bytes).map_err(|err| err.to_string())?;
+    Ok(labels)
 }
 
 fn load_roi_frame_annotation(
@@ -1575,6 +1622,16 @@ where
                 Err(message) => error_response(id, message),
             }
         }
+        "save_annotation_labels" => {
+            let payload = serde_json::from_value::<SaveAnnotationLabelsPayload>(envelope.payload)
+                .map_err(|err| err.to_string());
+            match catch_backend_panic(|| {
+                payload.and_then(|payload| save_annotation_labels(payload.workspace_path, payload.labels))
+            }) {
+                Ok(labels) => ok_response(id, "save_annotation_labels_result", labels),
+                Err(message) => error_response(id, message),
+            }
+        }
         "load_frame" => {
             let payload = serde_json::from_value::<LoadFramePayload>(envelope.payload)
                 .map_err(|err| err.to_string());
@@ -1718,9 +1775,10 @@ mod tests {
         auto_contrast, catch_backend_panic, crop_roi, load_annotation_labels,
         load_roi_frame, load_roi_frame_annotation, parse_bbox_csv, parse_pos_dir_name,
         parse_tiff_name, read_roi_index, save_bbox, save_roi_frame_annotation,
-        scan_roi_workspace, workspace_annotation_json_path, workspace_annotation_labels_path,
-        workspace_annotation_mask_path, workspace_bbox_csv_path, workspace_roi_index_path,
-        workspace_roi_tiff_path, ContrastWindow, CropOutputFormat, RoiFrameAnnotationPayload,
+        save_annotation_labels, scan_roi_workspace, workspace_annotation_json_path,
+        workspace_annotation_labels_path, workspace_annotation_mask_path,
+        workspace_bbox_csv_path, workspace_roi_index_path, workspace_roi_tiff_path,
+        AnnotationLabel, ContrastWindow, CropOutputFormat, RoiFrameAnnotationPayload,
         RoiFrameRequest, RoiIndexFile, ViewerSource,
     };
 
@@ -1921,6 +1979,49 @@ mod tests {
         assert_eq!(labels.len(), 2);
         assert_eq!(labels[0].id, "cell");
         assert_eq!(labels[1].color, "#f97316");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_annotation_labels_to_workspace_json() {
+        let root = unique_temp_dir("view-save-annotation-labels");
+        let workspace = root.join("workspace");
+        fs::create_dir_all(&workspace).unwrap();
+
+        let saved = save_annotation_labels(
+            workspace.to_string_lossy().to_string(),
+            vec![
+                AnnotationLabel {
+                    id: "cell".to_string(),
+                    name: "Cell".to_string(),
+                    color: "#22c55e".to_string(),
+                },
+                AnnotationLabel {
+                    id: "debris".to_string(),
+                    name: "Debris".to_string(),
+                    color: "#f97316".to_string(),
+                },
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(saved.len(), 2);
+        let path = workspace_annotation_labels_path(&workspace.to_string_lossy());
+        assert!(path.is_file());
+        let written = fs::read_to_string(path).unwrap();
+        assert!(written.contains("\"labels\""));
+        assert!(written.contains("\"cell\""));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn load_annotation_labels_returns_empty_when_labels_file_is_missing() {
+        let root = unique_temp_dir("view-missing-annotation-labels");
+
+        let labels = load_annotation_labels(root.to_string_lossy().to_string()).unwrap();
+        assert!(labels.is_empty());
 
         let _ = fs::remove_dir_all(root);
     }

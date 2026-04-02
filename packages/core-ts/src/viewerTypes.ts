@@ -164,6 +164,7 @@ export interface CropRoiProgressEvent {
 export interface ViewerBackend extends ViewerDataSource {
   scanRoiWorkspace(workspacePath: string): Promise<RoiWorkspaceScan>;
   loadAnnotationLabels(workspacePath: string): Promise<AnnotationLabel[]>;
+  saveAnnotationLabels(workspacePath: string, labels: AnnotationLabel[]): Promise<AnnotationLabel[]>;
   loadRoiFrame(
     workspacePath: string,
     request: RoiFrameRequest,

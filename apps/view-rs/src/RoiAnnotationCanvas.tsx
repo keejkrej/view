@@ -3,6 +3,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
@@ -27,6 +28,12 @@ interface DrawRect {
   y: number;
   width: number;
   height: number;
+  scale: number;
+}
+
+interface FramePointerPoint {
+  x: number;
+  y: number;
   scale: number;
 }
 
@@ -56,6 +63,19 @@ function hexToRgb(color: string) {
   return null;
 }
 
+function getDrawRect(width: number, height: number, frame: FrameResult): DrawRect {
+  const scale = Math.min(width / frame.width, height / frame.height);
+  const drawWidth = frame.width * scale;
+  const drawHeight = frame.height * scale;
+  return {
+    x: (width - drawWidth) / 2,
+    y: (height - drawHeight) / 2,
+    width: drawWidth,
+    height: drawHeight,
+    scale,
+  };
+}
+
 function prepareFrameCanvas(frame: FrameResult) {
   const canvas = document.createElement("canvas");
   canvas.width = frame.width;
@@ -77,13 +97,7 @@ function prepareFrameCanvas(frame: FrameResult) {
   return canvas;
 }
 
-function prepareOverlayCanvas(
-  width: number,
-  height: number,
-  labels: AnnotationLabel[],
-  mask: Uint8Array,
-  opacity: number,
-) {
+function prepareMaskCanvas(width: number, height: number, labels: AnnotationLabel[], mask: Uint8Array) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -100,27 +114,22 @@ function prepareOverlayCanvas(
     rgba[offset] = rgb?.r ?? 59;
     rgba[offset + 1] = rgb?.g ?? 130;
     rgba[offset + 2] = rgb?.b ?? 246;
-    rgba[offset + 3] = Math.round(clamp(opacity, 0, 1) * 255);
+    rgba[offset + 3] = 255;
   }
 
   ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
   return canvas;
 }
 
-function getDrawRect(width: number, height: number, frame: FrameResult): DrawRect {
-  const scale = Math.min(width / frame.width, height / frame.height);
-  const drawWidth = frame.width * scale;
-  const drawHeight = frame.height * scale;
-  return {
-    x: (width - drawWidth) / 2,
-    y: (height - drawHeight) / 2,
-    width: drawWidth,
-    height: drawHeight,
-    scale,
-  };
-}
-
-function paintCircle(mask: Uint8Array, width: number, height: number, x: number, y: number, radius: number, value: number) {
+function paintCircle(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  radius: number,
+  value: number,
+) {
   const left = Math.max(0, Math.floor(x - radius));
   const right = Math.min(width - 1, Math.ceil(x + radius));
   const top = Math.max(0, Math.floor(y - radius));
@@ -171,11 +180,10 @@ export default function RoiAnnotationCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderRafRef = useRef<number | null>(null);
-  const frameCanvas = useMemo(() => prepareFrameCanvas(frame), [frame]);
-  const overlayCanvas = useMemo(
-    () => prepareOverlayCanvas(frame.width, frame.height, labels, mask, overlayOpacity),
-    [frame.height, frame.width, labels, mask, overlayOpacity],
-  );
+  const resizeRafRef = useRef<number | null>(null);
+  const dprRef = useRef(1);
+  const displayMaskRef = useRef<Uint8Array>(mask);
+  const preparedFrame = useMemo(() => prepareFrameCanvas(frame), [frame]);
   const labelIndexMap = useMemo(
     () => new Map(labels.map((label, index) => [label.id, index + 1])),
     [labels],
@@ -197,46 +205,94 @@ export default function RoiAnnotationCanvas({
       const viewport = viewportRef.current;
       if (!canvas || !viewport) return;
 
-      const dpr = window.devicePixelRatio || 1;
-      const width = viewport.clientWidth;
-      const height = viewport.clientHeight;
-      canvas.width = Math.max(1, Math.round(width * dpr));
-      canvas.height = Math.max(1, Math.round(height * dpr));
-
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, width, height);
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      if (width <= 0 || height <= 0) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.scale(dprRef.current, dprRef.current);
       ctx.fillStyle = "#09090b";
       ctx.fillRect(0, 0, width, height);
 
       const drawRect = getDrawRect(width, height, frame);
       ctx.fillStyle = "rgba(255,255,255,0.03)";
-      ctx.fillRect(drawRect.x - 10, drawRect.y - 10, drawRect.width + 20, drawRect.height + 20);
+      ctx.fillRect(drawRect.x - 8, drawRect.y - 8, drawRect.width + 16, drawRect.height + 16);
       ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.strokeRect(
-        drawRect.x - 10.5,
-        drawRect.y - 10.5,
-        drawRect.width + 21,
-        drawRect.height + 21,
-      );
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(frameCanvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
-      ctx.drawImage(overlayCanvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
-    });
-  }, [frame, frameCanvas, overlayCanvas]);
+      ctx.strokeRect(drawRect.x - 8.5, drawRect.y - 8.5, drawRect.width + 17, drawRect.height + 17);
 
-  useEffect(() => {
-    queueRender();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(preparedFrame, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+
+      const overlayCanvas = prepareMaskCanvas(
+        frame.width,
+        frame.height,
+        labels,
+        displayMaskRef.current,
+      );
+      ctx.save();
+      ctx.globalAlpha = clamp(overlayOpacity, 0, 1);
+      ctx.drawImage(overlayCanvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+      ctx.restore();
+      ctx.restore();
+    });
+  }, [frame, labels, overlayOpacity, preparedFrame]);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const viewport = viewportRef.current;
+    if (!canvas || !viewport) return;
+
+    const resize = () => {
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+      }
+      resizeRafRef.current = window.requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        const dpr = window.devicePixelRatio || 1;
+        const pixelWidth = Math.max(1, Math.floor(viewport.clientWidth * dpr));
+        const pixelHeight = Math.max(1, Math.floor(viewport.clientHeight * dpr));
+        dprRef.current = dpr;
+        if (canvas.width !== pixelWidth) {
+          canvas.width = pixelWidth;
+        }
+        if (canvas.height !== pixelHeight) {
+          canvas.height = pixelHeight;
+        }
+        const cssWidth = `${viewport.clientWidth}px`;
+        const cssHeight = `${viewport.clientHeight}px`;
+        if (canvas.style.width !== cssWidth) {
+          canvas.style.width = cssWidth;
+        }
+        if (canvas.style.height !== cssHeight) {
+          canvas.style.height = cssHeight;
+        }
+        queueRender();
+      });
+    };
+
+    const observer = new ResizeObserver(() => resize());
+    observer.observe(viewport);
+    resize();
+
+    return () => {
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+      }
+      observer.disconnect();
+    };
   }, [queueRender]);
 
   useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const observer = new ResizeObserver(() => queueRender());
-    observer.observe(viewport);
-    return () => observer.disconnect();
+    displayMaskRef.current = mask;
+    queueRender();
+  }, [mask, queueRender]);
+
+  useEffect(() => {
+    queueRender();
   }, [queueRender]);
 
   useEffect(
@@ -244,40 +300,52 @@ export default function RoiAnnotationCanvas({
       if (renderRafRef.current != null) {
         window.cancelAnimationFrame(renderRafRef.current);
       }
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+      }
     },
     [],
   );
 
   const resolveFramePoint = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    (event: ReactPointerEvent<HTMLCanvasElement>): FramePointerPoint | null => {
       const viewport = viewportRef.current;
       if (!viewport) return null;
+
       const bounds = viewport.getBoundingClientRect();
-      const x = event.clientX - bounds.left;
-      const y = event.clientY - bounds.top;
+      const pointerX = event.clientX - bounds.left;
+      const pointerY = event.clientY - bounds.top;
       const drawRect = getDrawRect(bounds.width, bounds.height, frame);
       if (
-        x < drawRect.x ||
-        y < drawRect.y ||
-        x > drawRect.x + drawRect.width ||
-        y > drawRect.y + drawRect.height
+        pointerX < drawRect.x ||
+        pointerY < drawRect.y ||
+        pointerX > drawRect.x + drawRect.width ||
+        pointerY > drawRect.y + drawRect.height
       ) {
         return null;
       }
 
-      const frameX = clamp(Math.floor((x - drawRect.x) / drawRect.scale), 0, frame.width - 1);
-      const frameY = clamp(Math.floor((y - drawRect.y) / drawRect.scale), 0, frame.height - 1);
-      return { x: frameX, y: frameY };
+      return {
+        x: clamp(Math.floor((pointerX - drawRect.x) / drawRect.scale), 0, frame.width - 1),
+        y: clamp(Math.floor((pointerY - drawRect.y) / drawRect.scale), 0, frame.height - 1),
+        scale: drawRect.scale,
+      };
     },
     [frame],
   );
 
-  const commitStroke = useCallback(() => {
-    const active = strokeRef.current;
-    if (!active) return;
-    strokeRef.current = null;
-    onStrokeCommit(active.draftMask);
-  }, [onStrokeCommit]);
+  const finishStroke = useCallback(
+    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+      const active = strokeRef.current;
+      if (!active) return;
+      strokeRef.current = null;
+      onStrokeCommit(active.draftMask.slice());
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [onStrokeCommit],
+  );
 
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -292,16 +360,18 @@ export default function RoiAnnotationCanvas({
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
 
-      const radius = Math.max(0.5, brushSize / 2);
+      const radius = Math.max(0.5, brushSize / (2 * Math.max(point.scale, 0.0001)));
       const draftMask = mask.slice();
       paintStroke(draftMask, frame, point, point, radius, nextValue);
+      displayMaskRef.current = draftMask;
       strokeRef.current = {
         pointerId: event.pointerId,
         draftMask,
         lastPoint: point,
       };
       onStrokeStart?.();
-      onPreviewMaskChange(draftMask);
+      queueRender();
+      onPreviewMaskChange(draftMask.slice());
     },
     [
       activeLabelId,
@@ -312,6 +382,7 @@ export default function RoiAnnotationCanvas({
       mask,
       onPreviewMaskChange,
       onStrokeStart,
+      queueRender,
       resolveFramePoint,
       tool,
     ],
@@ -321,32 +392,57 @@ export default function RoiAnnotationCanvas({
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
       const active = strokeRef.current;
       if (!active || active.pointerId !== event.pointerId) return;
+
       const point = resolveFramePoint(event);
       if (!point) return;
 
       const nextValue =
         tool === "erase" ? 0 : (activeLabelId ? labelIndexMap.get(activeLabelId) ?? 0 : 0);
-      const radius = Math.max(0.5, brushSize / 2);
+      const radius = Math.max(0.5, brushSize / (2 * Math.max(point.scale, 0.0001)));
       paintStroke(active.draftMask, frame, active.lastPoint, point, radius, nextValue);
       active.lastPoint = point;
+      displayMaskRef.current = active.draftMask;
+      queueRender();
       onPreviewMaskChange(active.draftMask.slice());
     },
-    [activeLabelId, brushSize, frame, labelIndexMap, onPreviewMaskChange, resolveFramePoint, tool],
+    [
+      activeLabelId,
+      brushSize,
+      frame,
+      labelIndexMap,
+      onPreviewMaskChange,
+      queueRender,
+      resolveFramePoint,
+      tool,
+    ],
   );
 
   return (
     <div
       ref={viewportRef}
-      className={`relative min-h-[20rem] overflow-hidden rounded-2xl border border-border/70 bg-black/95 ${className ?? ""}`}
+      className={`relative overflow-hidden rounded-2xl border border-border/70 bg-black/95 ${className ?? ""}`}
+      style={{
+        minHeight: "28rem",
+        height: "100%",
+        width: "100%",
+        flex: "1 1 auto",
+      }}
     >
       <canvas
         ref={canvasRef}
-        className="h-full w-full touch-none cursor-crosshair"
+        className="touch-none cursor-crosshair"
+        style={{
+          display: "block",
+          height: "100%",
+          width: "100%",
+          userSelect: "none",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={commitStroke}
-        onPointerCancel={commitStroke}
-        onLostPointerCapture={commitStroke}
+        onPointerUp={finishStroke}
+        onPointerCancel={finishStroke}
+        onLostPointerCapture={finishStroke}
+        onContextMenu={(event) => event.preventDefault()}
       />
     </div>
   );

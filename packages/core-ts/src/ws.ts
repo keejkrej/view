@@ -102,6 +102,15 @@ class WebSocketBackend implements ViewerBackend {
     );
   }
 
+  async saveAnnotationLabels(
+    workspacePath: string,
+    labels: AnnotationLabel[],
+  ): Promise<AnnotationLabel[]> {
+    return Effect.runPromise(
+      this.requestEffect<AnnotationLabel[]>("save_annotation_labels", { workspacePath, labels }),
+    );
+  }
+
   async loadFrame(
     source: ViewerSource,
     request: FrameRequest,

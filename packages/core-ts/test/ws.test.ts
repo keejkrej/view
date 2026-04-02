@@ -264,6 +264,47 @@ describe("websocket backend", () => {
     ]);
   });
 
+  test("saves annotation labels through the websocket backend", async () => {
+    const backend = createWebSocketBackend({ url: "ws://example.test" });
+    const promise = backend.saveAnnotationLabels("/tmp/workspace", [
+      { id: "cell", name: "Cell", color: "#22c55e" },
+      { id: "debris", name: "Debris", color: "#f97316" },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const socket = FakeWebSocket.instance;
+    expect(socket).not.toBeNull();
+    const sent = JSON.parse(socket!.sent[0] ?? "{}") as {
+      id: string;
+      type: string;
+      payload: { workspacePath: string; labels: Array<{ id: string; name: string; color: string }> };
+    };
+
+    expect(sent.type).toBe("save_annotation_labels");
+    expect(sent.payload.workspacePath).toBe("/tmp/workspace");
+    expect(sent.payload.labels).toEqual([
+      { id: "cell", name: "Cell", color: "#22c55e" },
+      { id: "debris", name: "Debris", color: "#f97316" },
+    ]);
+
+    socket!.emit("message", {
+      data: JSON.stringify({
+        id: sent.id,
+        type: "save_annotation_labels_result",
+        payload: [
+          { id: "cell", name: "Cell", color: "#22c55e" },
+          { id: "debris", name: "Debris", color: "#f97316" },
+        ],
+      }),
+    });
+
+    await expect(promise).resolves.toEqual([
+      { id: "cell", name: "Cell", color: "#22c55e" },
+      { id: "debris", name: "Debris", color: "#f97316" },
+    ]);
+  });
+
   test("loads ROI frame annotations through the websocket backend", async () => {
     const backend = createWebSocketBackend({ url: "ws://example.test" });
     const promise = backend.loadRoiFrameAnnotation("/tmp/workspace", {

@@ -6,7 +6,8 @@ import type {
   RoiIndexEntry,
   ViewerBackend,
 } from "@view/core-ts";
-import { Button, Slider } from "@view/ui";
+import { Button, Input, Slider } from "@view/ui";
+import { Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import RoiAnnotationCanvas from "./RoiAnnotationCanvas";
@@ -22,6 +23,7 @@ interface RoiAnnotationModalProps {
   labelsLoading: boolean;
   labelsError: string | null;
   onClose: () => void;
+  onLabelsChange: (labels: AnnotationLabel[]) => void;
   onSaved: (annotation: RoiFrameAnnotation) => void;
 }
 
@@ -87,6 +89,14 @@ function colorStyle(color: string, active: boolean) {
     backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${active ? 0.18 : 0.1})`,
     color: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
   };
+}
+
+function slugifyLabelId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 async function decodeMaskBase64Png(
@@ -155,6 +165,7 @@ export default function RoiAnnotationModal({
   labelsLoading,
   labelsError,
   onClose,
+  onLabelsChange,
   onSaved,
 }: RoiAnnotationModalProps) {
   const initialSnapshotRef = useRef<EditorSnapshot>({
@@ -184,6 +195,20 @@ export default function RoiAnnotationModal({
   const [brushSize, setBrushSize] = useState(10);
   const [overlayOpacity, setOverlayOpacity] = useState(0.5);
   const [activePaintLabelId, setActivePaintLabelId] = useState<string | null>(labels?.[0]?.id ?? null);
+  const [labelDraft, setLabelDraft] = useState({
+    name: "",
+    id: "",
+    color: "#22c55e",
+  });
+  const [labelSaveState, setLabelSaveState] = useState<{
+    saving: boolean;
+    error: string | null;
+  }>({
+    saving: false,
+    error: null,
+  });
+  const [labelManagerOpen, setLabelManagerOpen] = useState(false);
+  const [labelColorDrafts, setLabelColorDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -238,15 +263,28 @@ export default function RoiAnnotationModal({
     }
   }, [activePaintLabelId, labels]);
 
+  useEffect(() => {
+    if (!labelManagerOpen) return;
+    setLabelColorDrafts(
+      Object.fromEntries((labels ?? []).map((label) => [label.id, label.color])),
+    );
+  }, [labelManagerOpen, labels]);
+
   const currentSnapshot = historyState.history[historyState.index] ?? initialSnapshotRef.current;
   const effectiveMask = historyState.previewMask ?? currentSnapshot.mask;
   const canEdit = !labelsLoading && !labelsError && (labels?.length ?? 0) > 0 && !loadState.error;
+  const canManageLabels = !labelsLoading && !labelsError;
   const dirty = useMemo(
     () => !snapshotsEqual(currentSnapshot, initialSnapshotRef.current),
     [currentSnapshot],
   );
   const selectedClassificationLabel = labels?.find(
     (label) => label.id === currentSnapshot.classificationLabelId,
+  );
+  const labelColorsDirty = useMemo(
+    () =>
+      (labels ?? []).some((label) => (labelColorDrafts[label.id] ?? label.color) !== label.color),
+    [labelColorDrafts, labels],
   );
 
   const commitSnapshot = useCallback((nextSnapshot: EditorSnapshot) => {
@@ -277,6 +315,11 @@ export default function RoiAnnotationModal({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && labelManagerOpen) {
+        event.preventDefault();
+        setLabelManagerOpen(false);
+        return;
+      }
       const modifierPressed = event.metaKey || event.ctrlKey;
       if (modifierPressed && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -298,7 +341,7 @@ export default function RoiAnnotationModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [requestClose]);
+  }, [labelManagerOpen, requestClose]);
 
   const handleClassificationChange = useCallback(
     (labelId: string | null) => {
@@ -355,6 +398,99 @@ export default function RoiAnnotationModal({
     workspacePath,
   ]);
 
+  const handleAddLabel = useCallback(async () => {
+    if (!canManageLabels || labelSaveState.saving) return;
+    const name = labelDraft.name.trim();
+    const id = (labelDraft.id.trim() || slugifyLabelId(name)).trim();
+    if (!name) {
+      setLabelSaveState({
+        saving: false,
+        error: "Label name is required.",
+      });
+      return;
+    }
+    if (!id) {
+      setLabelSaveState({
+        saving: false,
+        error: "Label id is required.",
+      });
+      return;
+    }
+    if ((labels ?? []).some((label) => label.id === id)) {
+      setLabelSaveState({
+        saving: false,
+        error: `A label with id '${id}' already exists.`,
+      });
+      return;
+    }
+
+    setLabelSaveState({ saving: true, error: null });
+    try {
+      const nextLabels = [
+        ...(labels ?? []),
+        {
+          id,
+          name,
+          color: labelDraft.color,
+        },
+      ];
+      const savedLabels = await backend.saveAnnotationLabels(workspacePath, nextLabels);
+      onLabelsChange(savedLabels);
+      setActivePaintLabelId((current) => current ?? savedLabels[0]?.id ?? null);
+      setLabelColorDrafts(Object.fromEntries(savedLabels.map((label) => [label.id, label.color])));
+      setLabelDraft({
+        name: "",
+        id: "",
+        color: "#22c55e",
+      });
+      setLabelSaveState({ saving: false, error: null });
+    } catch (error) {
+      setLabelSaveState({
+        saving: false,
+        error: toErrorMessage(error),
+      });
+    }
+  }, [backend, canManageLabels, labelDraft.color, labelDraft.id, labelDraft.name, labelSaveState.saving, labels, onLabelsChange, workspacePath]);
+
+  const openLabelManager = useCallback(() => {
+    setLabelSaveState({ saving: false, error: null });
+    setLabelManagerOpen(true);
+  }, []);
+
+  const closeLabelManager = useCallback(() => {
+    if (labelSaveState.saving) return;
+    setLabelManagerOpen(false);
+  }, [labelSaveState.saving]);
+
+  const handleSaveLabelColors = useCallback(async () => {
+    if (!canManageLabels || labelSaveState.saving || !labelColorsDirty) return;
+    setLabelSaveState({ saving: true, error: null });
+    try {
+      const nextLabels = (labels ?? []).map((label) => ({
+        ...label,
+        color: labelColorDrafts[label.id] ?? label.color,
+      }));
+      const savedLabels = await backend.saveAnnotationLabels(workspacePath, nextLabels);
+      onLabelsChange(savedLabels);
+      setLabelColorDrafts(Object.fromEntries(savedLabels.map((label) => [label.id, label.color])));
+      setLabelSaveState({ saving: false, error: null });
+    } catch (error) {
+      setLabelSaveState({
+        saving: false,
+        error: toErrorMessage(error),
+      });
+    }
+  }, [
+    backend,
+    canManageLabels,
+    labelColorDrafts,
+    labelColorsDirty,
+    labelSaveState.saving,
+    labels,
+    onLabelsChange,
+    workspacePath,
+  ]);
+
   return (
     <>
       <div
@@ -395,14 +531,50 @@ export default function RoiAnnotationModal({
                 Pos{request.pos} | C{request.channel} | T{request.time} | Z{request.z} | {frame.width} x {frame.height}
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-9 px-3 text-xs"
-              onClick={requestClose}
-            >
-              Close
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="flex min-w-[16rem] max-w-[28rem] flex-wrap items-center justify-end gap-2 rounded-2xl border border-border bg-background/45 px-3 py-2">
+                <span className="text-xs font-medium text-foreground">Label Set</span>
+                {(labels?.length ?? 0) > 0 ? (
+                  <>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {(labels ?? []).map((label) => (
+                        <span
+                          key={label.id}
+                          className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                          style={colorStyle(label.color, false)}
+                        >
+                          {label.name}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {(labels?.length ?? 0)} label{(labels?.length ?? 0) === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    No labels yet
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Manage annotation labels"
+                  disabled={!canManageLabels}
+                  onClick={openLabelManager}
+                >
+                  <Settings className="size-4" />
+                </button>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 px-3 text-xs"
+                onClick={requestClose}
+              >
+                Close
+              </Button>
+            </div>
           </div>
 
           <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -622,6 +794,173 @@ export default function RoiAnnotationModal({
           </div>
         </div>
       </div>
+
+      {labelManagerOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 px-4 py-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeLabelManager();
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-[1.5rem] border border-border/80 bg-card shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="annotation-label-settings-title"
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
+              <div className="space-y-1">
+                <h2
+                  id="annotation-label-settings-title"
+                  className="text-base font-medium text-foreground"
+                >
+                  Annotation Label Settings
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Add labels and tune their colors for classification chips and semantic mask painting.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 px-3 text-xs"
+                disabled={labelSaveState.saving}
+                onClick={closeLabelManager}
+              >
+                Close
+              </Button>
+            </div>
+
+            <div className="space-y-5 px-5 py-5">
+              {(labels?.length ?? 0) > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Current labels
+                  </p>
+                  <div className="space-y-2">
+                    {(labels ?? []).map((label) => (
+                      <div
+                        key={label.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/45 px-3 py-2"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <span
+                            className="inline-flex rounded-full border px-2.5 py-1 text-xs font-medium"
+                            style={colorStyle(labelColorDrafts[label.id] ?? label.color, false)}
+                          >
+                            {label.name}
+                          </span>
+                          <p className="text-xs text-muted-foreground">{label.id}</p>
+                        </div>
+                        <Input
+                          nativeInput
+                          type="color"
+                          size="sm"
+                          className="h-9 w-14 shrink-0 overflow-hidden px-1.5"
+                          value={labelColorDrafts[label.id] ?? label.color}
+                          onChange={(event) =>
+                            setLabelColorDrafts((current) => ({
+                              ...current,
+                              [label.id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-9 px-3 text-xs"
+                      disabled={!canManageLabels || labelSaveState.saving || !labelColorsDirty}
+                      onClick={() => void handleSaveLabelColors()}
+                    >
+                      {labelSaveState.saving && labelColorsDirty ? "Saving colors..." : "Save colors"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-border bg-background/45 px-4 py-3 text-sm text-muted-foreground">
+                  No labels yet. Add one below to enable annotation for this workspace.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Label name</p>
+                  <Input
+                    size="sm"
+                    value={labelDraft.name}
+                    placeholder="Cell"
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setLabelDraft((current) => ({
+                        ...current,
+                        name,
+                        id: current.id.length > 0 ? current.id : slugifyLabelId(name),
+                      }));
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Color</p>
+                  <Input
+                    nativeInput
+                    type="color"
+                    size="sm"
+                    className="h-9 overflow-hidden px-1.5"
+                    value={labelDraft.color}
+                    onChange={(event) =>
+                      setLabelDraft((current) => ({ ...current, color: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Label id</p>
+                <Input
+                  size="sm"
+                  value={labelDraft.id}
+                  placeholder="cell"
+                  onChange={(event) =>
+                    setLabelDraft((current) => ({ ...current, id: event.target.value }))
+                  }
+                />
+              </div>
+
+              {labelSaveState.error ? (
+                <div className="rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                  {labelSaveState.error}
+                </div>
+              ) : null}
+
+              <div className="flex justify-end gap-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 px-3 text-xs"
+                  disabled={labelSaveState.saving}
+                  onClick={closeLabelManager}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-9 px-3 text-xs"
+                  disabled={!canManageLabels || labelSaveState.saving}
+                  onClick={() => void handleAddLabel()}
+                >
+                  {labelSaveState.saving ? "Adding label..." : "Add label"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {discardConfirmOpen ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4">

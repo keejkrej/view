@@ -281,6 +281,32 @@ function colorBadgeStyle(color: string) {
   };
 }
 
+function tileStatesEqual(
+  left: Record<number, TileState>,
+  right: Record<number, TileState>,
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+
+  for (const key of rightKeys) {
+    const roi = Number(key);
+    const leftState = left[roi];
+    const rightState = right[roi];
+    if (!leftState || !rightState) return false;
+    if (
+      leftState.requestKey !== rightState.requestKey ||
+      leftState.frame !== rightState.frame ||
+      leftState.error !== rightState.error ||
+      leftState.loading !== rightState.loading
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function RoiTile({
   roi,
   tileState,
@@ -390,6 +416,7 @@ export default function RoiWorkspace({
   onClearSource,
 }: RoiWorkspaceProps) {
   const frameCacheRef = useRef(new FrameCache());
+  const annotationStatusesRef = useRef<Record<string, AnnotationStatusState>>({});
   const [tileStates, setTileStates] = useState<Record<number, TileState>>({});
   const [annotationLabelsState, setAnnotationLabelsState] = useState<{
     labels: AnnotationLabel[] | null;
@@ -573,10 +600,42 @@ export default function RoiWorkspace({
       ) ?? null,
     [annotationLabelsState.labels, selectedAnnotationStatus?.annotation?.classificationLabelId],
   );
+  const visibleRoiRequests = useMemo(() => {
+    if (!workspacePath || !selection) return [];
+    return visibleRois.map((roi) => {
+      const request = {
+        pos: selection.pos,
+        roi: roi.roi,
+        channel: selection.channel,
+        time: selection.time,
+        z: selection.z,
+      } satisfies RoiFrameRequest;
+      return {
+        roi,
+        request,
+        requestKey: makeRoiFrameKey(workspacePath, request),
+      };
+    });
+  }, [
+    selection?.channel,
+    selection?.pos,
+    selection?.time,
+    selection?.z,
+    visibleRois,
+    workspacePath,
+  ]);
+  const visibleRequestSignature = useMemo(
+    () => visibleRoiRequests.map(({ requestKey }) => requestKey).join("|"),
+    [visibleRoiRequests],
+  );
 
   useEffect(() => {
     setTimeSliderIndexValue(selectedTimeIndex);
   }, [selectedTimeIndex]);
+
+  useEffect(() => {
+    annotationStatusesRef.current = annotationStatuses;
+  }, [annotationStatuses]);
 
   useEffect(() => {
     if (pageIndex === boundedPageIndex) return;
@@ -595,22 +654,14 @@ export default function RoiWorkspace({
   }, [selectedRoi, visibleRois]);
 
   useEffect(() => {
-    if (!workspacePath || !selection || !position || visibleRois.length === 0) {
-      setTileStates({});
+    if (!workspacePath || visibleRoiRequests.length === 0) {
+      setTileStates((current) => (Object.keys(current).length === 0 ? current : {}));
       return;
     }
 
     const abortControllers: AbortController[] = [];
     const nextStates: Record<number, TileState> = {};
-    for (const roi of visibleRois) {
-      const request = {
-        pos: selection.pos,
-        roi: roi.roi,
-        channel: selection.channel,
-        time: selection.time,
-        z: selection.z,
-      } satisfies RoiFrameRequest;
-      const requestKey = makeRoiFrameKey(workspacePath, request);
+    for (const { roi, request, requestKey } of visibleRoiRequests) {
       const cached = frameCacheRef.current.get(requestKey);
 
       nextStates[roi.roi] = {
@@ -669,31 +720,23 @@ export default function RoiWorkspace({
       });
     }
 
-    setTileStates(nextStates);
+    setTileStates((current) => (tileStatesEqual(current, nextStates) ? current : nextStates));
 
     return () => {
       for (const controller of abortControllers) {
         controller.abort();
       }
     };
-  }, [backend, position, selection, visibleRois, workspacePath]);
+  }, [backend, visibleRequestSignature, visibleRoiRequests]);
 
   useEffect(() => {
-    if (!workspacePath || !selection || !position || visibleRois.length === 0) {
+    if (!workspacePath || visibleRoiRequests.length === 0) {
       return;
     }
 
     const abortControllers: AbortController[] = [];
-    for (const roi of visibleRois) {
-      const request = {
-        pos: selection.pos,
-        roi: roi.roi,
-        channel: selection.channel,
-        time: selection.time,
-        z: selection.z,
-      } satisfies RoiFrameRequest;
-      const requestKey = makeRoiFrameKey(workspacePath, request);
-      const cached = annotationStatuses[requestKey];
+    for (const { request, requestKey } of visibleRoiRequests) {
+      const cached = annotationStatusesRef.current[requestKey];
       if (cached) continue;
 
       setAnnotationStatuses((current) => ({
@@ -743,7 +786,7 @@ export default function RoiWorkspace({
         controller.abort();
       }
     };
-  }, [annotationStatuses, backend, position, selection, visibleRois, workspacePath]);
+  }, [backend, visibleRequestSignature, visibleRoiRequests]);
 
   const emptyText = useMemo(() => {
     if (!hasWorkspace) return "Select a workspace folder that contains cropped ROI TIFFs";
@@ -810,24 +853,30 @@ export default function RoiWorkspace({
                   />
                 </Field>
                 <Field label="Time" hint={String(timeValues[timeSliderIndex] ?? selection?.time ?? 0)}>
-                  <AppSlider
-                    value={timeSliderIndex}
-                    min={0}
-                    max={timeSliderMax}
-                    step={1}
-                    disabled={controlsDisabled || timeValues.length <= 1}
-                    onChange={(nextIndex) =>
-                      setTimeSliderIndexValue(clamp(Math.round(nextIndex), 0, timeSliderMax))
-                    }
-                    onCommit={(nextIndex) => {
-                      const rounded = clamp(Math.round(nextIndex), 0, timeSliderMax);
-                      setTimeSliderIndexValue(rounded);
-                      const nextTime = timeValues[rounded];
-                      if (nextTime != null && nextTime !== selection?.time) {
-                        setRoiSelectionKey("time", nextTime);
+                  {timeValues.length <= 1 ? (
+                    <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                      {String(timeValues[0] ?? selection?.time ?? 0)}
+                    </div>
+                  ) : (
+                    <AppSlider
+                      value={timeSliderIndex}
+                      min={0}
+                      max={timeSliderMax}
+                      step={1}
+                      disabled={controlsDisabled}
+                      onChange={(nextIndex) =>
+                        setTimeSliderIndexValue(clamp(Math.round(nextIndex), 0, timeSliderMax))
                       }
-                    }}
-                  />
+                      onCommit={(nextIndex) => {
+                        const rounded = clamp(Math.round(nextIndex), 0, timeSliderMax);
+                        setTimeSliderIndexValue(rounded);
+                        const nextTime = timeValues[rounded];
+                        if (nextTime != null && nextTime !== selection?.time) {
+                          setRoiSelectionKey("time", nextTime);
+                        }
+                      }}
+                    />
+                  )}
                 </Field>
                 <Field label="Z Slice">
                   <AppSelect
@@ -1015,6 +1064,13 @@ export default function RoiWorkspace({
           labelsLoading={annotationLabelsState.loading}
           labelsError={annotationLabelsState.error}
           onClose={() => setAnnotationModal(null)}
+          onLabelsChange={(labels) =>
+            setAnnotationLabelsState({
+              labels,
+              loading: false,
+              error: null,
+            })
+          }
           onSaved={(annotation) => {
             const requestKey = makeRoiFrameKey(workspacePath, annotationModal.request);
             setAnnotationStatuses((current) => ({
