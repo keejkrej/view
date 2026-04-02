@@ -7,7 +7,6 @@ Shared viewer frontend focused on alignment and annotation workflows:
 - `packages/annotate`: reusable ROI annotation editor and canvas surface
 - `packages/ui`: shared React web primitives and theme CSS for app shells
 - `apps/tauri/src` + `apps/tauri/src-tauri`: Tauri desktop shell with a Rust WebSocket backend on `ws://127.0.0.1:47834`
-- `apps/annotate-mock`: web-only harness for validating `@view/annotate`
 
 Current Tauri flow:
 
@@ -22,12 +21,6 @@ Tauri app:
 ```powershell
 bun install
 bun run dev
-```
-
-Annotate mock app:
-
-```powershell
-bun run dev:annotate-mock
 ```
 
 ## Verification

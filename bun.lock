@@ -5,26 +5,6 @@
     "": {
       "name": "view",
     },
-    "apps/annotate-mock": {
-      "name": "@view/annotate-mock",
-      "version": "0.1.0",
-      "dependencies": {
-        "@view/annotate": "workspace:*",
-        "@view/core-ts": "workspace:*",
-        "@view/ui": "workspace:*",
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1",
-      },
-      "devDependencies": {
-        "@tailwindcss/vite": "^4.2.2",
-        "@types/react": "^18.3.12",
-        "@types/react-dom": "^18.3.1",
-        "@vitejs/plugin-react": "^4.7.0",
-        "tailwindcss": "^4.2.2",
-        "typescript": "^5.6.3",
-        "vite": "^6.3.0",
-      },
-    },
     "apps/tauri": {
       "name": "@view/tauri",
       "version": "0.1.0",
@@ -383,8 +363,6 @@
     "@view/align": ["@view/align@workspace:packages/align"],
 
     "@view/annotate": ["@view/annotate@workspace:packages/annotate"],
-
-    "@view/annotate-mock": ["@view/annotate-mock@workspace:apps/annotate-mock"],
 
     "@view/core-ts": ["@view/core-ts@workspace:packages/core-ts"],
 

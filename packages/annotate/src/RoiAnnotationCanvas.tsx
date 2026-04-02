@@ -212,6 +212,7 @@ export default function RoiAnnotationCanvas({
     const resize = () => {
       if (resizeRafRef.current != null) {
         window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
       }
       resizeRafRef.current = window.requestAnimationFrame(() => {
         resizeRafRef.current = null;
@@ -244,6 +245,8 @@ export default function RoiAnnotationCanvas({
     return () => {
       if (resizeRafRef.current != null) {
         window.cancelAnimationFrame(resizeRafRef.current);
+        // Reset RAF handles after cancellation so Strict Mode remounts can schedule fresh work.
+        resizeRafRef.current = null;
       }
       observer.disconnect();
     };
@@ -262,9 +265,11 @@ export default function RoiAnnotationCanvas({
     () => () => {
       if (renderRafRef.current != null) {
         window.cancelAnimationFrame(renderRafRef.current);
+        renderRafRef.current = null;
       }
       if (resizeRafRef.current != null) {
         window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
       }
     },
     [],
