@@ -8,13 +8,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "bun run build:core-ts && bun run build:align && bun run build:annotate && bun run build:tauri",
-    "build:core-ts": "bun run --cwd packages/core-ts build",
-    "build:align": "bun run --cwd packages/align build",
-    "build:annotate": "bun run --cwd packages/annotate build",
-    "build:tauri": "bun run --cwd apps/tauri build:renderer",
-    "check:tauri": "bun run --cwd apps/tauri check:tauri",
-    "dev": "bun run --cwd apps/tauri dev",
+    "build": "bun run build:deps && bun run --cwd apps/tauri build:renderer && cd apps/tauri && tauri build",
+    "build:deps": "bun run --cwd packages/core-ts build && bun run --cwd packages/align build && bun run --cwd packages/annotate build",
+    "dev": "bun run --cwd apps/tauri tauri dev",
     "test": "bun run --cwd packages/core-ts test && bun run --cwd packages/align test && bun run --cwd packages/annotate test",
     "typecheck": "bun run --cwd packages/core-ts typecheck && bun run --cwd packages/align typecheck && bun run --cwd packages/annotate typecheck && bun run --cwd apps/tauri typecheck"
   }
