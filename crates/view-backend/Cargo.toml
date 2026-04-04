@@ -1,0 +1,11 @@
+[package]
+name = "view-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+view-domain = { path = "../view-domain" }
+view-image = { path = "../view-image" }
+view-roi = { path = "../view-roi" }

@@ -1,22 +1,27 @@
 # view
 
-Shared viewer frontend focused on alignment and annotation workflows:
+Layered viewer workspace focused on fast standalone development now and in-monorepo embedding later.
 
-- `packages/core-ts`: shared viewer-domain types, grid/bbox math, and WebSocket client
-- `packages/align`: reusable alignment canvas surface
-- `packages/annotate`: reusable ROI annotation editor and canvas surface
+- `packages/contracts`: serializable viewer DTOs plus host/data ports
+- `packages/core`: pure grid, bbox, selection, and contrast helpers
+- `packages/react`: reusable React viewer module, including alignment and ROI annotation workflows
+- `packages/host-tauri`: Tauri-specific adapter implementation of the host/data ports
 - `packages/ui`: shared React web primitives and theme CSS for app shells
-- `apps/tauri/src` + `apps/tauri/src-tauri`: Tauri desktop shell with a Rust WebSocket backend on `ws://127.0.0.1:47834`
+- `apps/desktop`: standalone desktop shell that composes `@view/react` through `@view/host-tauri`
+- `crates/view-domain`: Rust domain types and workspace/file-path conventions
+- `crates/view-image`: Rust TIFF/ND2 scanning, loading, and contrast shaping
+- `crates/view-roi`: Rust ROI scanning, crop, bbox, and annotation persistence
+- `crates/view-backend`: Rust façade consumed by the Tauri host
 
-Current Tauri flow:
+Current desktop flow:
 
 - Select a workspace folder first. Bbox CSVs are written to `workspace/bbox/Pos{n}.csv`.
 - Then open either a TIFF folder containing `Pos{n}` subfolders or an ND2 file.
-- ROI annotations are edited through the reusable `@view/annotate` surface.
+- ROI annotations are edited through the reusable React viewer module.
 
 ## Development
 
-Tauri app:
+Desktop app:
 
 ```powershell
 bun install
@@ -29,6 +34,5 @@ bun run dev
 bun run test
 bun run typecheck
 bun run build
-cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml
-cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml
+cargo check --workspace
 ```

@@ -5,27 +5,19 @@
     "": {
       "name": "view",
     },
-    "apps/tauri": {
-      "name": "@view/tauri",
+    "apps/desktop": {
+      "name": "@view/desktop",
       "version": "0.1.0",
       "dependencies": {
-        "@base-ui/react": "^1.3.0",
-        "@tauri-apps/api": "^2.8.0",
-        "@view/align": "workspace:*",
-        "@view/annotate": "workspace:*",
-        "@view/core-ts": "workspace:*",
+        "@view/host-tauri": "workspace:*",
+        "@view/react": "workspace:*",
         "@view/ui": "workspace:*",
-        "class-variance-authority": "^0.7.1",
-        "effect": "^3.21.0",
-        "lucide-react": "^1.6.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
-        "tailwind-merge": "^3.4.0",
-        "zustand": "^5.0.12",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.2.2",
-        "@tauri-apps/cli": "^2.8.4",
+        "@tauri-apps/cli": "^2.10.1",
         "@types/react": "^18.3.12",
         "@types/react-dom": "^18.3.1",
         "@vitejs/plugin-react": "^4.7.0",
@@ -34,58 +26,20 @@
         "vite": "^6.3.0",
       },
     },
-    "packages/align": {
-      "name": "@view/align",
+    "packages/contracts": {
+      "name": "@view/contracts",
       "version": "0.1.0",
-      "dependencies": {
-        "@view/core-ts": "workspace:*",
-        "react": "^18.3.1",
-      },
       "devDependencies": {
         "@types/bun": "^1.3.0",
         "@types/node": "^24.0.0",
-        "@types/react": "^18.3.12",
-        "@types/react-dom": "^18.3.1",
-        "@vitejs/plugin-react": "^4.7.0",
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1",
         "typescript": "^5.6.3",
-        "vite": "^6.3.0",
-      },
-      "peerDependencies": {
-        "react": "^18.3.1 || ^19.0.0",
-        "react-dom": "^18.3.1 || ^19.0.0",
       },
     },
-    "packages/annotate": {
-      "name": "@view/annotate",
+    "packages/core": {
+      "name": "@view/core",
       "version": "0.1.0",
       "dependencies": {
-        "@view/core-ts": "workspace:*",
-        "@view/ui": "workspace:*",
-        "lucide-react": "^1.6.0",
-        "react": "^18.3.1",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.3.0",
-        "@types/node": "^24.0.0",
-        "@types/react": "^18.3.12",
-        "@types/react-dom": "^18.3.1",
-        "@vitejs/plugin-react": "^4.7.0",
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1",
-        "typescript": "^5.6.3",
-        "vite": "^6.3.0",
-      },
-      "peerDependencies": {
-        "react": "^18.3.1 || ^19.0.0",
-        "react-dom": "^18.3.1 || ^19.0.0",
-      },
-    },
-    "packages/core-ts": {
-      "name": "@view/core-ts",
-      "version": "0.1.0",
-      "dependencies": {
+        "@view/contracts": "workspace:*",
         "effect": "^3.21.0",
       },
       "devDependencies": {
@@ -93,6 +47,44 @@
         "@types/node": "^24.0.0",
         "typescript": "^5.6.3",
         "vite": "^6.3.0",
+      },
+    },
+    "packages/host-tauri": {
+      "name": "@view/host-tauri",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tauri-apps/api": "^2.10.1",
+        "@view/contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "@types/node": "^24.0.0",
+        "typescript": "^5.6.3",
+      },
+    },
+    "packages/react": {
+      "name": "@view/react",
+      "version": "0.1.0",
+      "dependencies": {
+        "@view/contracts": "workspace:*",
+        "@view/core": "workspace:*",
+        "@view/ui": "workspace:*",
+        "effect": "^3.21.0",
+        "lucide-react": "^1.6.0",
+        "zustand": "^5.0.12",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.0",
+        "@types/node": "^24.0.0",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "typescript": "^5.6.3",
+      },
+      "peerDependencies": {
+        "react": "^18.3.1 || ^19.0.0",
+        "react-dom": "^18.3.1 || ^19.0.0",
       },
     },
     "packages/ui": {
@@ -108,6 +100,7 @@
       "devDependencies": {
         "@types/react": "^18.3.12",
         "@types/react-dom": "^18.3.1",
+        "typescript": "^5.6.3",
       },
       "peerDependencies": {
         "react": "^18.3.1 || ^19.0.0",
@@ -360,13 +353,15 @@
 
     "@types/react-dom": ["@types/react-dom@18.3.7", "", { "peerDependencies": { "@types/react": "^18.0.0" } }, "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ=="],
 
-    "@view/align": ["@view/align@workspace:packages/align"],
+    "@view/contracts": ["@view/contracts@workspace:packages/contracts"],
 
-    "@view/annotate": ["@view/annotate@workspace:packages/annotate"],
+    "@view/core": ["@view/core@workspace:packages/core"],
 
-    "@view/core-ts": ["@view/core-ts@workspace:packages/core-ts"],
+    "@view/desktop": ["@view/desktop@workspace:apps/desktop"],
 
-    "@view/tauri": ["@view/tauri@workspace:apps/tauri"],
+    "@view/host-tauri": ["@view/host-tauri@workspace:packages/host-tauri"],
+
+    "@view/react": ["@view/react@workspace:packages/react"],
 
     "@view/ui": ["@view/ui@workspace:packages/ui"],
 

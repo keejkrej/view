@@ -8,10 +8,10 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "bun run build:deps && bun run --cwd apps/tauri package:release",
-    "build:deps": "bun run --cwd packages/core-ts build && bun run --cwd packages/align build && bun run --cwd packages/annotate build",
-    "dev": "bun run --cwd apps/tauri tauri dev",
-    "test": "bun run --cwd packages/core-ts test && bun run --cwd packages/align test && bun run --cwd packages/annotate test",
-    "typecheck": "bun run --cwd packages/core-ts typecheck && bun run --cwd packages/align typecheck && bun run --cwd packages/annotate typecheck && bun run --cwd apps/tauri typecheck"
+    "build": "bun run scripts/run-workspaces.mjs build --scope packages && bun run --cwd apps/desktop build",
+    "dev": "bun run --cwd apps/desktop dev",
+    "release": "bun run --cwd apps/desktop release",
+    "test": "bun run scripts/run-workspaces.mjs test --scope packages",
+    "typecheck": "bun run scripts/run-workspaces.mjs typecheck --scope packages && bun run --cwd apps/desktop typecheck && cargo check --workspace"
   }
 }

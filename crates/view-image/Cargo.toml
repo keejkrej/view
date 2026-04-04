@@ -1,0 +1,10 @@
+[package]
+name = "view-image"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nd2-rs = "0.1.6"
+tiff = "0.10"
+walkdir = "2.5"
+view-domain = { path = "../view-domain" }
