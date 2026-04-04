@@ -9,6 +9,16 @@
     "beforeBuildCommand": "bun run build:renderer",
     "frontendDist": "../dist"
   },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "View",
+        "width": 1440,
+        "height": 960
+      }
+    ]
+  },
   "bundle": {
     "active": true,
     "targets": "all",
