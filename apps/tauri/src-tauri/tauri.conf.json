@@ -10,16 +10,8 @@
     "frontendDist": "../dist"
   },
   "bundle": {
-    "active": false
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "View",
-        "width": 1480,
-        "height": 980
-      }
-    ]
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
   }
 }
-

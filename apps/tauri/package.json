@@ -8,6 +8,7 @@
     "dev": "bunx @tauri-apps/cli dev --config src-tauri/tauri.conf.json",
     "build:renderer": "tsc --noEmit -p tsconfig.json && vite build --config vite.config.ts",
     "build": "bun run build:renderer",
+    "package:release": "bun ./scripts/package-release.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:tauri": "cargo check --manifest-path src-tauri/Cargo.toml"
   },
