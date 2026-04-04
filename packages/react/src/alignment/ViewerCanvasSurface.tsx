@@ -198,7 +198,7 @@ export default function ViewerCanvasSurface({
         drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid, activeExcludedCellIds);
       } else {
         ctx.fillStyle = "rgba(255,255,255,0.55)";
-        ctx.font = "500 14px 'DM Sans', 'Segoe UI Variable', sans-serif";
+        ctx.font = "500 14px system-ui";
         ctx.fillText(
           loading ? "Loading frame..." : (emptyText ?? "No frame loaded"),
           28,
