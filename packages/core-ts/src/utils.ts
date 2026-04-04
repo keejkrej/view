@@ -1,22 +1,100 @@
 import type {
   GridCellRect,
   GridFrameBounds,
+  GridPointerGestureInput,
+  GridPointerGestureSession,
+  GridPointerIntent,
   GridShape,
   GridState,
   GridWheelGestureInput,
   GridWheelIntent,
   GridWheelViewport,
+  MousePointerInput,
 } from "./types";
 
 export const MAX_GRID_RECTS = 8000;
 const LINE_DELTA_PX = 16;
 const PAGE_DELTA_PX = 320;
-const TOUCHPAD_STEP_THRESHOLD_PX = 48;
 const EXP_SCALE_FACTOR = 0.0015;
 const GRID_BOUNDS_EPSILON = 1e-6;
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+export function isMousePointerInput(input: MousePointerInput): boolean {
+  return input.pointerType === "mouse";
+}
+
+export function isPrimaryMouseButton(input: MousePointerInput): boolean {
+  return isMousePointerInput(input) && input.button === 0;
+}
+
+export function classifyGridPointerGesture(input: MousePointerInput): GridPointerIntent | null {
+  if (!isMousePointerInput(input)) return null;
+  if (input.button === 0) return "offset";
+  if (input.button === 1) return "spacing";
+  if (input.button === 2) return "rotation";
+  return null;
+}
+
+export function beginGridPointerGesture(
+  grid: GridState,
+  input: GridPointerGestureInput,
+): GridPointerGestureSession | null {
+  const intent = classifyGridPointerGesture(input);
+  if (!intent) return null;
+  return {
+    pointerId: input.pointerId,
+    intent,
+    startClientX: input.clientX,
+    startClientY: input.clientY,
+    startGrid: grid,
+  };
+}
+
+export function applyGridPointerGesture(
+  session: GridPointerGestureSession,
+  input: GridPointerGestureInput,
+  viewport: GridWheelViewport,
+): GridState {
+  const deltaX = input.clientX - session.startClientX;
+  const deltaY = input.clientY - session.startClientY;
+
+  if (session.intent === "offset") {
+    const sx =
+      viewport.displayWidth > 0 && viewport.modelWidth > 0
+        ? viewport.displayWidth / viewport.modelWidth
+        : 1;
+    const sy =
+      viewport.displayHeight > 0 && viewport.modelHeight > 0
+        ? viewport.displayHeight / viewport.modelHeight
+        : 1;
+    const invSx = sx > 0 ? 1 / sx : 1;
+    const invSy = sy > 0 ? 1 / sy : 1;
+
+    return {
+      ...session.startGrid,
+      tx: session.startGrid.tx + deltaX * invSx,
+      ty: session.startGrid.ty + deltaY * invSy,
+    };
+  }
+
+  if (session.intent === "rotation") {
+    return {
+      ...session.startGrid,
+      rotation: normalizeRadians(
+        session.startGrid.rotation + degreesToRadians((deltaX / Math.max(1, viewport.displayWidth)) * 220),
+      ),
+    };
+  }
+
+  const factor = Math.max(0.01, 1 + (deltaX / Math.max(1, viewport.displayWidth)) * 2.5);
+  return normalizeGridState({
+    ...session.startGrid,
+    spacingA: session.startGrid.spacingA * factor,
+    spacingB: session.startGrid.spacingB * factor,
+  });
 }
 
 function normalizeWheelDelta(value: number, deltaMode: number): number {
@@ -341,20 +419,18 @@ export function isTouchpadLikeGridWheelGesture(gesture: GridWheelGestureInput): 
   if (gesture.deltaMode !== 0) return false;
 
   const absDeltaX = Math.abs(normalizeWheelDelta(gesture.deltaX, gesture.deltaMode));
-  const absDeltaY = Math.abs(normalizeWheelDelta(gesture.deltaY, gesture.deltaMode));
 
   if (absDeltaX > 0) return true;
-  if (hasFractionalWheelDelta(gesture.deltaX) || hasFractionalWheelDelta(gesture.deltaY)) return true;
-  if (absDeltaY > 0 && absDeltaY < TOUCHPAD_STEP_THRESHOLD_PX) return true;
+  if (hasFractionalWheelDelta(gesture.deltaX)) return true;
   return false;
 }
 
 export function classifyGridWheelGesture(gesture: GridWheelGestureInput): GridWheelIntent {
   if (gesture.ctrlKey) {
-    return gesture.shiftKey ? "spacing" : "size";
+    return "ignore";
   }
   if (isTouchpadLikeGridWheelGesture(gesture)) {
-    return gesture.shiftKey ? "rotate" : "pan";
+    return "ignore";
   }
   return "size";
 }
@@ -362,47 +438,13 @@ export function classifyGridWheelGesture(gesture: GridWheelGestureInput): GridWh
 export function applyGridWheelGesture(
   grid: GridState,
   gesture: GridWheelGestureInput,
-  viewport: GridWheelViewport,
+  _viewport: GridWheelViewport,
 ): GridState {
   const intent = classifyGridWheelGesture(gesture);
-  const deltaX = normalizeWheelDelta(gesture.deltaX, gesture.deltaMode);
   const deltaY = normalizeWheelDelta(gesture.deltaY, gesture.deltaMode);
 
-  if (intent === "pan") {
-    const sx =
-      viewport.displayWidth > 0 && viewport.modelWidth > 0
-        ? viewport.displayWidth / viewport.modelWidth
-        : 1;
-    const sy =
-      viewport.displayHeight > 0 && viewport.modelHeight > 0
-        ? viewport.displayHeight / viewport.modelHeight
-        : 1;
-    const invSx = sx > 0 ? 1 / sx : 1;
-    const invSy = sy > 0 ? 1 / sy : 1;
-
-    return {
-      ...grid,
-      tx: grid.tx + deltaX * invSx,
-      ty: grid.ty + deltaY * invSy,
-    };
-  }
-
-  if (intent === "rotate") {
-    const primaryDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
-    const deltaRadians = degreesToRadians((primaryDelta / Math.max(1, viewport.displayWidth)) * 220);
-    return {
-      ...grid,
-      rotation: normalizeRadians(grid.rotation + deltaRadians),
-    };
-  }
-
-  if (intent === "spacing") {
-    const factor = scaleFactorFromDelta(deltaY);
-    return normalizeGridState({
-      ...grid,
-      spacingA: grid.spacingA * factor,
-      spacingB: grid.spacingB * factor,
-    });
+  if (intent === "ignore") {
+    return grid;
   }
 
   const factor = scaleFactorFromDelta(deltaY);

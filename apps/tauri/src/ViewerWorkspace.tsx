@@ -1,5 +1,5 @@
 import { Effect, Exit } from "effect";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
@@ -8,12 +8,18 @@ import type {
   ContrastWindow,
   FrameResult,
   CropRoiProgressEvent,
+  GridPointerGestureSession,
+  GridState,
   ViewerCanvasStatusMessage,
   ViewerBackend,
   ViewerSource,
 } from "@view/core-ts";
 import {
+  applyGridPointerGesture,
+  applyGridWheelGesture,
+  beginGridPointerGesture,
   getFrameContrastDomain,
+  isPrimaryMouseButton,
   makeFrameKey,
 } from "@view/core-ts";
 import {
@@ -21,12 +27,18 @@ import {
   clamp,
   collectEdgeCellIds,
   countVisibleCells,
+  collectStrokeToggleCellIds,
   degreesToRadians,
   enumerateVisibleGridCells,
   radiansToDegrees,
+  toggleCellIds,
   type GridShape,
 } from "@view/core-ts";
-import { ViewerCanvasSurface } from "@view/align";
+import {
+  ViewerCanvasSurface,
+  type ViewerCanvasPointerEvent,
+  type ViewerCanvasWheelEvent,
+} from "@view/align";
 import {
   Button,
   Input,
@@ -87,6 +99,12 @@ interface ViewerWorkspaceProps {
 
 interface CachedFrame {
   frame: FrameResult;
+}
+
+interface SelectionStroke {
+  pointerId: number;
+  hitCellIds: Set<string>;
+  lastPoint: { x: number; y: number } | null;
 }
 
 class FrameCache {
@@ -172,15 +190,56 @@ function NumberInput({
   step?: string;
   min?: number | string;
 }) {
+  const [draftValue, setDraftValue] = useState(() => (Number.isFinite(value) ? String(value) : ""));
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDraftValue(Number.isFinite(value) ? String(value) : "");
+    }
+  }, [isEditing, value]);
+
+  const commitDraft = useCallback(() => {
+    const nextValue = Number(draftValue);
+    if (Number.isFinite(nextValue)) {
+      onChange(nextValue);
+      return;
+    }
+    setDraftValue(Number.isFinite(value) ? String(value) : "");
+  }, [draftValue, onChange, value]);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        commitDraft();
+        setIsEditing(false);
+        event.currentTarget.blur();
+        return;
+      }
+      if (event.key === "Escape") {
+        setDraftValue(Number.isFinite(value) ? String(value) : "");
+        setIsEditing(false);
+        event.currentTarget.blur();
+      }
+    },
+    [commitDraft, value],
+  );
+
   return (
     <Input
       type="number"
       size="sm"
       step={step}
       min={min}
-      value={Number.isFinite(value) ? String(value) : ""}
+      value={draftValue}
       disabled={disabled}
-      onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(Number(event.target.value))}
+      onFocus={() => setIsEditing(true)}
+      onBlur={() => {
+        commitDraft();
+        setIsEditing(false);
+      }}
+      onKeyDown={handleKeyDown}
+      onChange={(event: ChangeEvent<HTMLInputElement>) => setDraftValue(event.target.value)}
       className="text-sm"
     />
   );
@@ -274,7 +333,11 @@ export default function ViewerWorkspace({
   onClearSource,
 }: ViewerWorkspaceProps) {
   const frameCacheRef = useRef(new FrameCache());
+  const dragSessionRef = useRef<GridPointerGestureSession | null>(null);
+  const selectionStrokeRef = useRef<SelectionStroke | null>(null);
   const [cropConfirmOpen, setCropConfirmOpen] = useState(false);
+  const [previewGrid, setPreviewGrid] = useState<GridState | null>(null);
+  const [selectionPreviewCellIds, setSelectionPreviewCellIds] = useState<string[] | null>(null);
   const [cropProgress, setCropProgressValue] = useState<CropRoiProgressEvent>({
     requestId: "",
     progress: 0,
@@ -503,9 +566,23 @@ export default function ViewerWorkspace({
     }
   }, [frame, grid.enabled]);
 
+  useEffect(() => {
+    dragSessionRef.current = null;
+    selectionStrokeRef.current = null;
+    setPreviewGrid(null);
+    setSelectionPreviewCellIds(null);
+  }, [frame, selectionMode, selection?.pos]);
+
   const activeExcludedCellIds = useMemo(
     () => new Set(selection ? excludedCellIdsByPosition[selection.pos] ?? [] : []),
     [excludedCellIdsByPosition, selection],
+  );
+  const renderedExcludedCellIds = useMemo(
+    () =>
+      selectionPreviewCellIds
+        ? new Set(toggleCellIds(activeExcludedCellIds, selectionPreviewCellIds))
+        : activeExcludedCellIds,
+    [activeExcludedCellIds, selectionPreviewCellIds],
   );
   const visibleCells = useMemo(
     () => (frame ? enumerateVisibleGridCells(frame, grid) : []),
@@ -652,6 +729,111 @@ export default function ViewerWorkspace({
     return `roi/Pos${selection.pos}/Roi{m}.tif`;
   }, [selection]);
   const cropProgressPercent = Math.round(cropProgress.progress * 100);
+  const canvasCursor = selectionMode ? "crosshair" : grid.enabled ? (previewGrid ? "grabbing" : "grab") : "default";
+
+  const collectSelectionStroke = useCallback(
+    (stroke: SelectionStroke, point: { x: number; y: number }, startPoint: { x: number; y: number }) => {
+      if (!frame) return;
+      const fromPoint = stroke.lastPoint ?? startPoint;
+      const nextCellIds = collectStrokeToggleCellIds(frame, grid, fromPoint, point, stroke.hitCellIds);
+      for (const cellId of nextCellIds) {
+        stroke.hitCellIds.add(cellId);
+      }
+      stroke.lastPoint = point;
+      setSelectionPreviewCellIds(Array.from(stroke.hitCellIds));
+    },
+    [frame, grid],
+  );
+
+  const handleCanvasPointerDown = useCallback(
+    (event: ViewerCanvasPointerEvent) => {
+      if (selectionMode) {
+        if (!frame || !selection || !isPrimaryMouseButton(event) || !event.framePoint) return;
+        const stroke: SelectionStroke = {
+          pointerId: event.pointerId,
+          hitCellIds: new Set<string>(),
+          lastPoint: null,
+        };
+        collectSelectionStroke(stroke, event.framePoint, event.framePoint);
+        selectionStrokeRef.current = stroke;
+        event.capturePointer();
+        event.preventDefault();
+        return;
+      }
+
+      if (!grid.enabled) return;
+      const session = beginGridPointerGesture(grid, event);
+      if (!session) return;
+      dragSessionRef.current = session;
+      event.capturePointer();
+      event.preventDefault();
+    },
+    [collectSelectionStroke, frame, grid, selection, selectionMode],
+  );
+
+  const handleCanvasPointerMove = useCallback(
+    (event: ViewerCanvasPointerEvent) => {
+      if (selectionMode) {
+        const stroke = selectionStrokeRef.current;
+        if (!stroke || stroke.pointerId !== event.pointerId) return;
+        if (!event.framePoint) {
+          stroke.lastPoint = null;
+          return;
+        }
+        collectSelectionStroke(stroke, event.framePoint, event.framePoint);
+        event.preventDefault();
+        return;
+      }
+
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== event.pointerId || !event.viewport) return;
+      setPreviewGrid(applyGridPointerGesture(session, event, event.viewport));
+      event.preventDefault();
+    },
+    [collectSelectionStroke, selectionMode],
+  );
+
+  const handleCanvasPointerEnd = useCallback(
+    (event: ViewerCanvasPointerEvent) => {
+      if (selectionMode) {
+        const stroke = selectionStrokeRef.current;
+        if (!stroke || stroke.pointerId !== event.pointerId) return;
+        if (event.framePoint) {
+          collectSelectionStroke(stroke, event.framePoint, event.framePoint);
+        }
+        selectionStrokeRef.current = null;
+        setSelectionPreviewCellIds(null);
+        if (selection && stroke.hitCellIds.size > 0) {
+          toggleExcludedCells(selection.pos, Array.from(stroke.hitCellIds));
+        }
+        event.releasePointer();
+        return;
+      }
+
+      const session = dragSessionRef.current;
+      if (!session || session.pointerId !== event.pointerId) return;
+      dragSessionRef.current = null;
+      if (previewGrid) {
+        setGrid(previewGrid);
+        setSaveState(IDLE_SAVE_STATE);
+      }
+      setPreviewGrid(null);
+      event.releasePointer();
+    },
+    [collectSelectionStroke, previewGrid, selection, selectionMode],
+  );
+
+  const handleCanvasWheel = useCallback(
+    (event: ViewerCanvasWheelEvent) => {
+      if (!frame || !grid.enabled || selectionMode || !event.viewport) return;
+      event.preventDefault();
+      dragSessionRef.current = null;
+      setPreviewGrid(null);
+      setGrid(applyGridWheelGesture(grid, event, event.viewport));
+      setSaveState(IDLE_SAVE_STATE);
+    },
+    [frame, grid, selectionMode],
+  );
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -797,19 +979,17 @@ export default function ViewerWorkspace({
                     <ViewerCanvasSurface
                       frame={frame}
                       grid={grid}
-                      excludedCellIds={activeExcludedCellIds}
-                      selectionMode={selectionMode}
+                      previewGrid={previewGrid}
+                      excludedCellIds={renderedExcludedCellIds}
                       loading={loading && !frame}
                       emptyText={emptyText}
                       messages={messages}
-                      onGridChange={(nextGrid) => {
-                        setGrid(nextGrid);
-                        setSaveState(IDLE_SAVE_STATE);
-                      }}
-                      onToggleCells={(cellIds) => {
-                        if (!selection || cellIds.length === 0) return;
-                        toggleExcludedCells(selection.pos, cellIds);
-                      }}
+                      cursor={canvasCursor}
+                      onVirtualPointerDown={handleCanvasPointerDown}
+                      onVirtualPointerMove={handleCanvasPointerMove}
+                      onVirtualPointerUp={handleCanvasPointerEnd}
+                      onVirtualPointerCancel={handleCanvasPointerEnd}
+                      onVirtualWheel={handleCanvasWheel}
                     />
                   </div>
                 </div>

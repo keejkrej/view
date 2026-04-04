@@ -1,18 +1,14 @@
 import {
-  applyGridWheelGesture,
   clamp,
-  collectStrokeToggleCellIds,
-  degreesToRadians,
   enumerateVisibleGridCells,
   gridBasis,
-  normalizeGridState,
-  normalizeRadians,
-  toggleCellIds,
   type FrameResult,
   type GridState,
+  type GridWheelViewport,
   type ViewerCanvasStatusTone,
 } from "@view/core-ts";
 import {
+  type WheelEvent as ReactWheelEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -22,7 +18,10 @@ import {
 } from "react";
 
 import type {
+  ViewerCanvasFramePoint,
+  ViewerCanvasPointerEvent,
   ViewerCanvasSurfaceProps,
+  ViewerCanvasWheelEvent,
 } from "./types";
 
 interface PreparedFrame {
@@ -138,44 +137,25 @@ function messageToneClasses(tone: ViewerCanvasStatusTone | undefined) {
 export default function ViewerCanvasSurface({
   frame,
   grid,
+  previewGrid,
   excludedCellIds,
-  selectionMode = false,
   loading = false,
   emptyText,
   messages,
   className,
-  onGridChange,
-  onToggleCells,
+  cursor,
+  onVirtualPointerDown,
+  onVirtualPointerMove,
+  onVirtualPointerUp,
+  onVirtualPointerCancel,
+  onVirtualWheel,
 }: ViewerCanvasSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderRafRef = useRef<number | null>(null);
   const resizeRafRef = useRef<number | null>(null);
   const latestFrameRef = useRef<PreparedFrame | null>(null);
-  const latestGridRef = useRef<GridState>(grid);
-  const previewGridRef = useRef<GridState | null>(null);
   const dprRef = useRef(1);
-  const selectStrokeRef = useRef<
-    | null
-    | {
-        pointerId: number;
-        hitCellIds: Set<string>;
-        lastPoint: { x: number; y: number } | null;
-      }
-  >(null);
-  const dragRef = useRef<
-    | null
-    | {
-        mode: "pan" | "rotate" | "spacing";
-        startX: number;
-        startY: number;
-        startTx: number;
-        startTy: number;
-        startRotation: number;
-        startSpacingA: number;
-        startSpacingB: number;
-      }
-  >(null);
 
   const preparedFrame = useMemo(() => (frame ? prepareFrameCanvas(frame) : null), [frame]);
   const activeExcludedCellIds = useMemo(
@@ -197,12 +177,7 @@ export default function ViewerCanvasSurface({
 
       const cssWidth = view.clientWidth;
       const cssHeight = view.clientHeight;
-      const activeGrid = previewGridRef.current ?? latestGridRef.current;
-      const strokePreviewCellIds = selectStrokeRef.current?.hitCellIds;
-      const renderedExcludedCellIds =
-        strokePreviewCellIds && strokePreviewCellIds.size > 0
-          ? new Set(toggleCellIds(activeExcludedCellIds, strokePreviewCellIds))
-          : activeExcludedCellIds;
+      const activeGrid = previewGrid ?? grid;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       ctx.scale(dprRef.current, dprRef.current);
@@ -221,7 +196,7 @@ export default function ViewerCanvasSurface({
         ctx.strokeRect(drawX - 8.5, drawY - 8.5, drawWidth + 17, drawHeight + 17);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(cached.prepared, drawX, drawY, drawWidth, drawHeight);
-        drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid, renderedExcludedCellIds);
+        drawGridOverlay(ctx, cssWidth, cssHeight, cached.frame, activeGrid, activeExcludedCellIds);
       } else {
         ctx.fillStyle = "rgba(255,255,255,0.55)";
         ctx.font = "500 14px 'DM Sans', 'Segoe UI Variable', sans-serif";
@@ -234,7 +209,7 @@ export default function ViewerCanvasSurface({
 
       ctx.restore();
     });
-  }, [activeExcludedCellIds, emptyText, loading]);
+  }, [activeExcludedCellIds, emptyText, grid, loading, previewGrid]);
 
   useEffect(() => {
     latestFrameRef.current =
@@ -248,12 +223,8 @@ export default function ViewerCanvasSurface({
   }, [frame, preparedFrame, queueRender]);
 
   useEffect(() => {
-    latestGridRef.current = grid;
-    if (!dragRef.current) {
-      previewGridRef.current = null;
-    }
     queueRender();
-  }, [grid, queueRender]);
+  }, [grid, previewGrid, queueRender]);
 
   useEffect(() => {
     queueRender();
@@ -304,44 +275,7 @@ export default function ViewerCanvasSurface({
     };
   }, [queueRender]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handleNativeWheel = (event: WheelEvent) => {
-      if (!frame || !grid.enabled || selectionMode || !onGridChange) return;
-
-      event.preventDefault();
-      const view = viewportRef.current;
-      const displayWidth = view?.clientWidth ?? frame.width;
-      const displayHeight = view?.clientHeight ?? frame.height;
-      const nextGrid = applyGridWheelGesture(
-        latestGridRef.current,
-        {
-          deltaMode: event.deltaMode,
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-        },
-        {
-          displayWidth,
-          displayHeight,
-          modelWidth: frame.width,
-          modelHeight: frame.height,
-        },
-      );
-      previewGridRef.current = null;
-      onGridChange(nextGrid);
-    };
-
-    canvas.addEventListener("wheel", handleNativeWheel, { passive: false });
-    return () => {
-      canvas.removeEventListener("wheel", handleNativeWheel);
-    };
-  }, [frame, grid.enabled, onGridChange, selectionMode]);
-
-  const getFramePoint = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+  const getFramePointFromClient = useCallback((clientX: number, clientY: number): ViewerCanvasFramePoint | null => {
     const cached = latestFrameRef.current;
     const view = viewportRef.current;
     if (!cached || !view) return null;
@@ -352,8 +286,8 @@ export default function ViewerCanvasSurface({
     const drawHeight = cached.frame.height * scale;
     const drawX = (bounds.width - drawWidth) / 2;
     const drawY = (bounds.height - drawHeight) / 2;
-    const pointerX = event.clientX - bounds.left;
-    const pointerY = event.clientY - bounds.top;
+    const pointerX = clientX - bounds.left;
+    const pointerY = clientY - bounds.top;
 
     if (
       pointerX < drawX ||
@@ -370,226 +304,52 @@ export default function ViewerCanvasSurface({
     };
   }, []);
 
-  const collectCellsAlongStroke = useCallback(
-    (
-      stroke: {
-        pointerId: number;
-        hitCellIds: Set<string>;
-        lastPoint: { x: number; y: number } | null;
-      },
-      point: { x: number; y: number },
-      startPoint: { x: number; y: number },
-      activeFrame: FrameResult,
-      activeGrid: GridState,
-    ) => {
-      const fromPoint = stroke.lastPoint ?? startPoint;
-      const nextCellIds = collectStrokeToggleCellIds(
-        activeFrame,
-        activeGrid,
-        fromPoint,
-        point,
-        stroke.hitCellIds,
-      );
-      for (const cellId of nextCellIds) {
-        stroke.hitCellIds.add(cellId);
-      }
-      stroke.lastPoint = point;
-    },
-    [],
-  );
+  const getViewport = useCallback((): GridWheelViewport | null => {
+    const view = viewportRef.current;
+    if (!view || !frame) return null;
+    return {
+      displayWidth: view.clientWidth,
+      displayHeight: view.clientHeight,
+      modelWidth: frame.width,
+      modelHeight: frame.height,
+    };
+  }, [frame]);
 
-  const pauseStrokeCollection = useCallback((stroke: {
-    pointerId: number;
-    hitCellIds: Set<string>;
-    lastPoint: { x: number; y: number } | null;
-  }) => {
-    stroke.lastPoint = null;
-  }, []);
-
-  const finishStrokeSelection = useCallback(
-    (
-      stroke: {
-        pointerId: number;
-        hitCellIds: Set<string>;
-        lastPoint: { x: number; y: number } | null;
-      },
-      activeFrame: FrameResult | null,
-      point: { x: number; y: number } | null,
-    ) => {
-      if (activeFrame && point) {
-        collectCellsAlongStroke(stroke, point, point, activeFrame, latestGridRef.current);
-      }
-
-      if (stroke.hitCellIds.size > 0) {
-        onToggleCells?.(Array.from(stroke.hitCellIds));
-      }
-    },
-    [collectCellsAlongStroke, onToggleCells],
-  );
-
-  const beginDrag = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (!frame || !grid.enabled) return;
-
-      let mode: "pan" | "rotate" | "spacing" | null = null;
-      if (event.button === 0) {
-        mode = "pan";
-      } else if (event.button === 1) {
-        mode = "spacing";
-      } else if (event.button === 2) {
-        mode = "rotate";
-      }
-      if (!mode) return;
-
-      dragRef.current = {
-        mode,
-        startX: event.clientX,
-        startY: event.clientY,
-        startTx: grid.tx,
-        startTy: grid.ty,
-        startRotation: grid.rotation,
-        startSpacingA: grid.spacingA,
-        startSpacingB: grid.spacingB,
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    },
-    [frame, grid.enabled, grid.rotation, grid.spacingA, grid.spacingB, grid.tx, grid.ty],
-  );
-
-  const moveDrag = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      const drag = dragRef.current;
-      const cached = latestFrameRef.current;
-      const view = viewportRef.current;
-      if (!drag || !cached || !view) return;
-
-      const scale = Math.min(view.clientWidth / cached.frame.width, view.clientHeight / cached.frame.height);
-      const deltaX = event.clientX - drag.startX;
-      const deltaY = event.clientY - drag.startY;
-
-      if (drag.mode === "pan") {
-        previewGridRef.current = {
-          ...latestGridRef.current,
-          tx: drag.startTx + deltaX / scale,
-          ty: drag.startTy + deltaY / scale,
-        };
-      } else if (drag.mode === "rotate") {
-        previewGridRef.current = {
-          ...latestGridRef.current,
-          rotation: normalizeRadians(
-            drag.startRotation + degreesToRadians((deltaX / Math.max(1, view.clientWidth)) * 220),
-          ),
-        };
-      } else {
-        const factor = Math.max(0.01, 1 + (deltaX / Math.max(1, view.clientWidth)) * 2.5);
-        previewGridRef.current = normalizeGridState({
-          ...latestGridRef.current,
-          spacingA: drag.startSpacingA * factor,
-          spacingB: drag.startSpacingB * factor,
-        });
-      }
-
-      queueRender();
-    },
-    [queueRender],
-  );
-
-  const endDrag = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      const previewGrid = previewGridRef.current;
-      dragRef.current = null;
-      previewGridRef.current = null;
-      if (previewGrid) {
-        onGridChange?.(previewGrid);
-      } else {
-        queueRender();
-      }
-
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    [onGridChange, queueRender],
-  );
-
-  const handleWheel = useCallback(
-    (_event: React.WheelEvent<HTMLCanvasElement>) => {
-      // Native non-passive wheel listener handles contrast/grid gestures.
-    },
-    [],
-  );
-
-  const handleCanvasPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode && event.button === 0 && frame && onToggleCells) {
-        const point = getFramePoint(event);
-        if (!point) {
-          return;
-        }
-
-        const stroke = {
-          pointerId: event.pointerId,
-          hitCellIds: new Set<string>(),
-          lastPoint: null,
-        };
-        collectCellsAlongStroke(stroke, point, point, frame, latestGridRef.current);
-        selectStrokeRef.current = stroke;
-        event.currentTarget.setPointerCapture(event.pointerId);
-        queueRender();
-        return;
-      }
-
-      if (selectionMode) {
-        return;
-      }
-
-      beginDrag(event);
-    },
-    [beginDrag, collectCellsAlongStroke, frame, getFramePoint, onToggleCells, selectionMode],
-  );
-
-  const handleCanvasPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode) {
-        const stroke = selectStrokeRef.current;
-        if (!stroke || stroke.pointerId !== event.pointerId || !frame) {
-          return;
-        }
-
-        const point = getFramePoint(event);
-        if (!point) {
-          pauseStrokeCollection(stroke);
-          return;
-        }
-
-        collectCellsAlongStroke(stroke, point, point, frame, latestGridRef.current);
-        queueRender();
-        return;
-      }
-
-      moveDrag(event);
-    },
-    [collectCellsAlongStroke, frame, getFramePoint, moveDrag, pauseStrokeCollection, selectionMode],
-  );
-
-  const handleCanvasPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (selectionMode) {
-        const stroke = selectStrokeRef.current;
-        if (stroke?.pointerId === event.pointerId) {
-          finishStrokeSelection(stroke, frame, getFramePoint(event));
-          selectStrokeRef.current = null;
-        }
+  const toVirtualPointerEvent = useCallback(
+    (event: ReactPointerEvent<HTMLCanvasElement>): ViewerCanvasPointerEvent => ({
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      button: event.button,
+      buttons: event.buttons,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      framePoint: getFramePointFromClient(event.clientX, event.clientY),
+      viewport: getViewport(),
+      preventDefault: () => event.preventDefault(),
+      capturePointer: () => event.currentTarget.setPointerCapture(event.pointerId),
+      releasePointer: () => {
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
-        return;
-      }
+      },
+    }),
+    [getFramePointFromClient, getViewport],
+  );
 
-      endDrag(event);
-    },
-    [endDrag, finishStrokeSelection, frame, getFramePoint, selectionMode],
+  const toVirtualWheelEvent = useCallback(
+    (event: ReactWheelEvent<HTMLCanvasElement>): ViewerCanvasWheelEvent => ({
+      deltaMode: event.deltaMode,
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      framePoint: getFramePointFromClient(event.clientX, event.clientY),
+      viewport: getViewport(),
+      preventDefault: () => event.preventDefault(),
+    }),
+    [getFramePointFromClient, getViewport],
   );
 
   return (
@@ -612,15 +372,15 @@ export default function ViewerCanvasSurface({
           display: "block",
           height: "100%",
           width: "100%",
-          cursor: selectionMode ? "crosshair" : grid.enabled ? "grab" : "default",
+          cursor: cursor ?? "default",
           touchAction: "none",
           userSelect: "none",
         }}
-        onPointerDown={handleCanvasPointerDown}
-        onPointerMove={handleCanvasPointerMove}
-        onPointerUp={handleCanvasPointerEnd}
-        onPointerCancel={handleCanvasPointerEnd}
-        onWheel={handleWheel}
+        onPointerDown={(event) => onVirtualPointerDown?.(toVirtualPointerEvent(event))}
+        onPointerMove={(event) => onVirtualPointerMove?.(toVirtualPointerEvent(event))}
+        onPointerUp={(event) => onVirtualPointerUp?.(toVirtualPointerEvent(event))}
+        onPointerCancel={(event) => onVirtualPointerCancel?.(toVirtualPointerEvent(event))}
+        onWheel={(event) => onVirtualWheel?.(toVirtualWheelEvent(event))}
         onContextMenu={(event) => event.preventDefault()}
       />
 

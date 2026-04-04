@@ -33,6 +33,25 @@ export interface GridWheelViewport {
   modelHeight: number;
 }
 
+export interface MousePointerInput {
+  pointerType: string;
+  button: number;
+}
+
+export interface GridPointerGestureInput extends MousePointerInput {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+}
+
+export interface GridPointerGestureSession {
+  pointerId: number;
+  intent: GridPointerIntent;
+  startClientX: number;
+  startClientY: number;
+  startGrid: GridState;
+}
+
 export interface GridCellRect {
   id: string;
   i: number;
@@ -45,4 +64,5 @@ export interface GridCellRect {
   height: number;
 }
 
-export type GridWheelIntent = "pan" | "rotate" | "size" | "spacing";
+export type GridPointerIntent = "offset" | "rotation" | "spacing";
+export type GridWheelIntent = "ignore" | "size";

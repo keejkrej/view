@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyGridPointerGesture,
   applyGridWheelGesture,
+  beginGridPointerGesture,
   buildBboxCsv,
+  classifyGridPointerGesture,
   classifyGridWheelGesture,
   collectEdgeCellIds,
   collectStrokeToggleCellIds,
@@ -13,6 +16,8 @@ import {
   estimateGridDraw,
   findGridCellAtPoint,
   gridBasis,
+  isMousePointerInput,
+  isPrimaryMouseButton,
   normalizeRadians,
   normalizeGridState,
 } from "../src";
@@ -88,7 +93,144 @@ describe("grid utils", () => {
     ).toBe("size");
   });
 
-  test("maps pinch to size scaling", () => {
+  test("classifies pixel-mode vertical wheel as size scaling", () => {
+    expect(
+      classifyGridWheelGesture({
+        deltaMode: 0,
+        deltaX: 0,
+        deltaY: 3,
+        ctrlKey: false,
+        shiftKey: false,
+      }),
+    ).toBe("size");
+  });
+
+  test("classifies fractional vertical wheel as size scaling", () => {
+    expect(
+      classifyGridWheelGesture({
+        deltaMode: 0,
+        deltaX: 0,
+        deltaY: 1.5,
+        ctrlKey: false,
+        shiftKey: false,
+      }),
+    ).toBe("size");
+  });
+
+  test("classifies mouse buttons as grid actions", () => {
+    expect(classifyGridPointerGesture({ pointerType: "mouse", button: 0 })).toBe("offset");
+    expect(classifyGridPointerGesture({ pointerType: "mouse", button: 1 })).toBe("spacing");
+    expect(classifyGridPointerGesture({ pointerType: "mouse", button: 2 })).toBe("rotation");
+    expect(classifyGridPointerGesture({ pointerType: "touch", button: 0 })).toBeNull();
+    expect(classifyGridPointerGesture({ pointerType: "mouse", button: 4 })).toBeNull();
+  });
+
+  test("identifies mouse and primary button input", () => {
+    expect(isMousePointerInput({ pointerType: "mouse", button: 2 })).toBe(true);
+    expect(isMousePointerInput({ pointerType: "pen", button: 2 })).toBe(false);
+    expect(isPrimaryMouseButton({ pointerType: "mouse", button: 0 })).toBe(true);
+    expect(isPrimaryMouseButton({ pointerType: "mouse", button: 1 })).toBe(false);
+  });
+
+  test("applies left drag as offset movement", () => {
+    const grid = createDefaultGrid();
+    const session = beginGridPointerGesture(grid, {
+      pointerId: 7,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 100,
+      clientY: 200,
+    });
+
+    expect(session).not.toBeNull();
+    const next = applyGridPointerGesture(
+      session!,
+      {
+        pointerId: 7,
+        pointerType: "mouse",
+        button: 0,
+        clientX: 130,
+        clientY: 180,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 200,
+        modelWidth: 200,
+        modelHeight: 100,
+      },
+    );
+
+    expect(next.tx).toBeCloseTo(15);
+    expect(next.ty).toBeCloseTo(-10);
+    expect(next.rotation).toBe(grid.rotation);
+  });
+
+  test("applies middle drag as spacing scaling", () => {
+    const grid = createDefaultGrid();
+    const session = beginGridPointerGesture(grid, {
+      pointerId: 7,
+      pointerType: "mouse",
+      button: 1,
+      clientX: 100,
+      clientY: 200,
+    });
+
+    expect(session).not.toBeNull();
+    const next = applyGridPointerGesture(
+      session!,
+      {
+        pointerId: 7,
+        pointerType: "mouse",
+        button: 1,
+        clientX: 140,
+        clientY: 200,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 400,
+        modelWidth: 200,
+        modelHeight: 200,
+      },
+    );
+
+    expect(next.spacingA).toBeGreaterThan(grid.spacingA);
+    expect(next.spacingB).toBeGreaterThan(grid.spacingB);
+    expect(next.cellWidth).toBe(grid.cellWidth);
+  });
+
+  test("applies right drag as rotation", () => {
+    const grid = createDefaultGrid();
+    const session = beginGridPointerGesture(grid, {
+      pointerId: 7,
+      pointerType: "mouse",
+      button: 2,
+      clientX: 100,
+      clientY: 200,
+    });
+
+    expect(session).not.toBeNull();
+    const next = applyGridPointerGesture(
+      session!,
+      {
+        pointerId: 7,
+        pointerType: "mouse",
+        button: 2,
+        clientX: 140,
+        clientY: 200,
+      },
+      {
+        displayWidth: 400,
+        displayHeight: 400,
+        modelWidth: 200,
+        modelHeight: 200,
+      },
+    );
+
+    expect(next.rotation).toBeCloseTo(normalizeRadians(degreesToRadians(22)));
+    expect(next.tx).toBe(grid.tx);
+  });
+
+  test("ignores pinch gestures", () => {
     const grid = createDefaultGrid();
     const next = applyGridWheelGesture(
       grid,
@@ -107,12 +249,10 @@ describe("grid utils", () => {
       },
     );
 
-    expect(next.cellWidth).toBeGreaterThan(grid.cellWidth);
-    expect(next.cellHeight).toBeGreaterThan(grid.cellHeight);
-    expect(next.spacingA).toBe(grid.spacingA);
+    expect(next).toEqual(grid);
   });
 
-  test("maps shift pinch to spacing scaling", () => {
+  test("ignores shift pinch gestures", () => {
     const grid = createDefaultGrid();
     const next = applyGridWheelGesture(
       grid,
@@ -131,12 +271,10 @@ describe("grid utils", () => {
       },
     );
 
-    expect(next.spacingA).toBeGreaterThan(grid.spacingA);
-    expect(next.spacingB).toBeGreaterThan(grid.spacingB);
-    expect(next.cellWidth).toBe(grid.cellWidth);
+    expect(next).toEqual(grid);
   });
 
-  test("maps touchpad scroll to pan", () => {
+  test("ignores touchpad scroll", () => {
     const grid = createDefaultGrid();
     const next = applyGridWheelGesture(
       grid,
@@ -155,17 +293,16 @@ describe("grid utils", () => {
       },
     );
 
-    expect(next.tx).toBeCloseTo(6.25);
-    expect(next.ty).toBeCloseTo(-12);
+    expect(next).toEqual(grid);
   });
 
-  test("maps shift touchpad scroll to rotation", () => {
+  test("ignores shift touchpad scroll", () => {
     const grid = createDefaultGrid();
     const next = applyGridWheelGesture(
       grid,
       {
         deltaMode: 0,
-        deltaX: 0,
+        deltaX: 0.5,
         deltaY: 40,
         ctrlKey: false,
         shiftKey: true,
@@ -178,7 +315,7 @@ describe("grid utils", () => {
       },
     );
 
-    expect(next.rotation).toBeCloseTo(normalizeRadians(degreesToRadians(22)));
+    expect(next).toEqual(grid);
   });
 
   test("keeps edge-touching cells visible", () => {

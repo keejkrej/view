@@ -84,6 +84,10 @@ function prepareMaskCanvas(width: number, height: number, labels: AnnotationLabe
   return canvas;
 }
 
+function isMousePointerEvent(event: ReactPointerEvent<HTMLCanvasElement>): boolean {
+  return event.pointerType === "mouse";
+}
+
 function paintCircle(
   mask: Uint8Array,
   width: number,
@@ -305,7 +309,7 @@ export default function RoiAnnotationCanvas({
   const finishStroke = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
       const active = strokeRef.current;
-      if (!active) return;
+      if (!active || active.pointerId !== event.pointerId) return;
       strokeRef.current = null;
       onStrokeCommit(active.draftMask.slice());
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -317,7 +321,7 @@ export default function RoiAnnotationCanvas({
 
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (disabled) return;
+      if (disabled || !isMousePointerEvent(event) || event.button !== 0) return;
       const point = resolveFramePoint(event);
       if (!point) return;
 
