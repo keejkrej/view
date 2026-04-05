@@ -31,6 +31,12 @@ interface FramePayload {
   applied_contrast?: FrameResult["appliedContrast"];
 }
 
+interface CropRoiProgressPayload {
+  request_id: string;
+  progress: number;
+  message: string;
+}
+
 const CROP_PROGRESS_EVENT = "view://crop-progress";
 
 function decodeBase64ToBytes(value: string): Uint8Array {
@@ -58,6 +64,14 @@ function toFrameResult(payload: FramePayload): FrameResult {
   };
 }
 
+function toCropRoiProgressEvent(payload: CropRoiProgressPayload): CropRoiProgressEvent {
+  return {
+    requestId: payload.request_id,
+    progress: payload.progress,
+    message: payload.message,
+  };
+}
+
 function makeRequestId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -73,9 +87,10 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
 
   const ensureCropProgressListener = () => {
     if (!cropProgressUnlistenPromise) {
-      cropProgressUnlistenPromise = listen<CropRoiProgressEvent>(CROP_PROGRESS_EVENT, (event) => {
+      cropProgressUnlistenPromise = listen<CropRoiProgressPayload>(CROP_PROGRESS_EVENT, (event) => {
+        const payload = toCropRoiProgressEvent(event.payload);
         for (const listener of cropProgressListeners) {
-          listener(event.payload);
+          listener(payload);
         }
       }).catch(() => null);
     }
@@ -97,20 +112,20 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
     },
 
     scanRoiWorkspace(workspacePath: string): Promise<RoiWorkspaceScan> {
-      return invoke("scan_roi_workspace", { workspace_path: workspacePath });
+      return invoke("scan_roi_workspace", { workspacePath });
     },
 
     loadAnnotationLabels(workspacePath: string): Promise<AnnotationLabel[]> {
-      return invoke("load_annotation_labels", { workspace_path: workspacePath });
+      return invoke("load_annotation_labels", { workspacePath });
     },
 
     saveAnnotationLabels(workspacePath: string, labels: AnnotationLabel[]): Promise<AnnotationLabel[]> {
-      return invoke("save_annotation_labels", { workspace_path: workspacePath, labels });
+      return invoke("save_annotation_labels", { workspacePath, labels });
     },
 
     loadRoiFrame(workspacePath: string, request: RoiFrameRequest, options?: LoadFrameOptions) {
       return invoke<FramePayload>("load_roi_frame", {
-        workspace_path: workspacePath,
+        workspacePath,
         request,
         contrast: options?.contrast ?? null,
       }).then(toFrameResult);
@@ -120,7 +135,7 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
       workspacePath: string,
       request: RoiFrameRequest,
     ): Promise<LoadedRoiFrameAnnotation> {
-      return invoke("load_roi_frame_annotation", { workspace_path: workspacePath, request });
+      return invoke("load_roi_frame_annotation", { workspacePath, request });
     },
 
     saveRoiFrameAnnotation(
@@ -129,7 +144,7 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
       annotation: RoiFrameAnnotationPayload,
     ): Promise<RoiFrameAnnotation> {
       return invoke("save_roi_frame_annotation", {
-        workspace_path: workspacePath,
+        workspacePath,
         request,
         annotation,
       });
@@ -142,7 +157,7 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
       csv: string,
     ): Promise<SaveBboxResponse> {
       return invoke("save_bbox", {
-        workspace_path: workspacePath,
+        workspacePath,
         source,
         pos,
         csv,
@@ -157,11 +172,11 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
     ): Promise<CropRoiResponse> {
       const requestId = makeRequestId();
       return invoke("crop_roi", {
-        workspace_path: workspacePath,
+        workspacePath,
         source,
         pos,
         format,
-        request_id: requestId,
+        requestId,
       });
     },
 
@@ -194,7 +209,7 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
 
     roiPosExists(workspacePath: string, pos: number) {
       return invoke("roi_pos_exists", {
-        workspace_path: workspacePath,
+        workspacePath,
         pos,
       });
     },
