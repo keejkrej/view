@@ -43,6 +43,14 @@ fn pick_nd2() -> Option<String> {
 }
 
 #[command]
+fn pick_czi() -> Option<String> {
+    FileDialog::new()
+        .add_filter("CZI", &["czi"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+#[command]
 fn roi_pos_exists(workspace_path: String, pos: u32) -> bool {
     Path::new(&workspace_path)
         .join("roi")
@@ -141,6 +149,7 @@ fn main() {
             pick_workspace,
             pick_tif,
             pick_nd2,
+            pick_czi,
             roi_pos_exists,
             scan_source,
             load_frame,

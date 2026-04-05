@@ -1,5 +1,6 @@
 export type {
   AnnotationLabel,
+  CziSource,
   ContrastWindow,
   CropOutputFormat,
   CropRoiProgressEvent,

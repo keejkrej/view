@@ -3,6 +3,7 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+use czi_rs::{Bitmap as CziBitmap, CziFile, Dimension as CziDimension, PixelType as CziPixelType, PlaneIndex};
 use nd2_rs::Nd2File;
 use tiff::decoder::{Decoder, DecodingResult};
 use walkdir::WalkDir;
@@ -19,6 +20,57 @@ pub struct RawFrame {
     pub width: u32,
     pub height: u32,
     pub data: Vec<u16>,
+}
+
+fn collapse_u8_buffer(width: u32, height: u32, values: Vec<u8>) -> Result<Vec<u16>, String> {
+    let expected_len = width as usize * height as usize;
+    if values.len() == expected_len {
+        return Ok(values.into_iter().map(u16::from).collect());
+    }
+    if values.len() == expected_len * 3 || values.len() == expected_len * 4 {
+        let channels = values.len() / expected_len;
+        let mut collapsed = Vec::with_capacity(expected_len);
+        for chunk in values.chunks(channels) {
+            let sum: u32 = chunk.iter().map(|value| u32::from(*value)).sum();
+            collapsed.push((sum / channels as u32) as u16);
+        }
+        return Ok(collapsed);
+    }
+    Err("Unsupported CZI sample layout".to_string())
+}
+
+fn collapse_u16_buffer(width: u32, height: u32, values: Vec<u16>) -> Result<Vec<u16>, String> {
+    let expected_len = width as usize * height as usize;
+    if values.len() == expected_len {
+        return Ok(values);
+    }
+    if values.len() == expected_len * 3 || values.len() == expected_len * 4 {
+        let channels = values.len() / expected_len;
+        let mut collapsed = Vec::with_capacity(expected_len);
+        for chunk in values.chunks(channels) {
+            let sum: u32 = chunk.iter().map(|value| u32::from(*value)).sum();
+            collapsed.push((sum / channels as u32) as u16);
+        }
+        return Ok(collapsed);
+    }
+    Err("Unsupported CZI sample layout".to_string())
+}
+
+pub fn czi_bitmap_to_u16(bitmap: CziBitmap) -> Result<Vec<u16>, String> {
+    let pixel_type = bitmap.pixel_type;
+    let width = bitmap.width;
+    let height = bitmap.height;
+
+    match pixel_type {
+        CziPixelType::Gray8 | CziPixelType::Bgr24 | CziPixelType::Bgra32 => {
+            collapse_u8_buffer(width, height, bitmap.into_bytes())
+        }
+        CziPixelType::Gray16 | CziPixelType::Bgr48 => {
+            let values = bitmap.to_u16_vec().map_err(|err| err.to_string())?;
+            collapse_u16_buffer(width, height, values)
+        }
+        _ => Err(format!("Unsupported CZI pixel type {}", pixel_type.as_str())),
+    }
 }
 
 pub fn collect_tiffs(folder: &Path) -> Vec<(PathBuf, ParsedTiffName)> {
@@ -128,6 +180,18 @@ pub fn scan_nd2(path: &Path) -> Result<WorkspaceScan, String> {
     })
 }
 
+pub fn scan_czi(path: &Path) -> Result<WorkspaceScan, String> {
+    let czi = CziFile::open(path).map_err(|err| err.to_string())?;
+    let sizes = czi.sizes().map_err(|err| err.to_string())?;
+
+    Ok(WorkspaceScan {
+        positions: dimension_values(&sizes, "S"),
+        channels: dimension_values(&sizes, "C"),
+        times: dimension_values(&sizes, "T"),
+        z_slices: dimension_values(&sizes, "Z"),
+    })
+}
+
 pub fn scan_tif(root: &Path) -> Result<WorkspaceScan, String> {
     let entries = fs::read_dir(root).map_err(|err| err.to_string())?;
     let mut position_dirs = Vec::<(u32, PathBuf)>::new();
@@ -205,10 +269,37 @@ pub fn load_nd2_frame(path: &Path, request: FrameRequest) -> Result<RawFrame, St
     Ok(RawFrame { width, height, data })
 }
 
+pub fn load_czi_frame(path: &Path, request: FrameRequest) -> Result<RawFrame, String> {
+    let mut czi = CziFile::open(path).map_err(|err| err.to_string())?;
+    let sizes = czi.sizes().map_err(|err| err.to_string())?;
+
+    let pos = validate_request_index("Position", request.pos, dimension_size(&sizes, "S"))?;
+    let time = validate_request_index("Time", request.time, dimension_size(&sizes, "T"))?;
+    let channel = validate_request_index("Channel", request.channel, dimension_size(&sizes, "C"))?;
+    let z = validate_request_index("Z", request.z, dimension_size(&sizes, "Z"))?;
+
+    let plane = PlaneIndex::new()
+        .with(CziDimension::S, pos)
+        .with(CziDimension::T, time)
+        .with(CziDimension::C, channel)
+        .with(CziDimension::Z, z);
+    let bitmap = czi.read_plane(&plane).map_err(|err| err.to_string())?;
+    let width = bitmap.width;
+    let height = bitmap.height;
+    let data = czi_bitmap_to_u16(bitmap)?;
+
+    Ok(RawFrame {
+        width,
+        height,
+        data,
+    })
+}
+
 pub fn scan_source(source: ViewerSource) -> Result<WorkspaceScan, String> {
     match source {
         ViewerSource::Tif { path } => scan_tif(Path::new(&path)),
         ViewerSource::Nd2 { path } => scan_nd2(Path::new(&path)),
+        ViewerSource::Czi { path } => scan_czi(Path::new(&path)),
     }
 }
 
@@ -216,6 +307,7 @@ pub fn load_frame(source: ViewerSource, request: FrameRequest) -> Result<RawFram
     match source {
         ViewerSource::Tif { path } => load_tif_frame(Path::new(&path), request),
         ViewerSource::Nd2 { path } => load_nd2_frame(Path::new(&path), request),
+        ViewerSource::Czi { path } => load_czi_frame(Path::new(&path), request),
     }
 }
 

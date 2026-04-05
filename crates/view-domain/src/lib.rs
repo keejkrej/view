@@ -26,6 +26,7 @@ pub struct WorkspaceScan {
 pub enum ViewerSource {
     Tif { path: String },
     Nd2 { path: String },
+    Czi { path: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

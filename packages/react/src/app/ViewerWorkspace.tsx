@@ -99,6 +99,7 @@ interface ViewerWorkspaceProps {
   onPickWorkspace: () => Promise<void>;
   onOpenTif: () => Promise<void>;
   onOpenNd2: () => Promise<void>;
+  onOpenCzi: () => Promise<void>;
   onCheckRoiExists: (workspacePath: string, pos: number) => Promise<boolean>;
   onClearSource: () => void;
 }
@@ -295,6 +296,7 @@ export default function ViewerWorkspace({
   onPickWorkspace,
   onOpenTif,
   onOpenNd2,
+  onOpenCzi,
   onCheckRoiExists,
   onClearSource,
 }: ViewerWorkspaceProps) {
@@ -585,7 +587,11 @@ export default function ViewerWorkspace({
     if (!workspacePath) return "Select a workspace folder to save bbox CSVs";
     if (!source) return "Select a TIF folder or ND2 file to load frames";
     if (scan && scan.positions.length === 0) {
-      return source.kind === "nd2" ? "No frames found in ND2 file" : "No frames found in TIF folder";
+      return source.kind === "nd2"
+        ? "No frames found in ND2 file"
+        : source.kind === "czi"
+          ? "No frames found in CZI file"
+          : "No frames found in TIF folder";
     }
     return "No frame loaded";
   }, [scan, source, workspacePath]);
@@ -812,6 +818,7 @@ export default function ViewerWorkspace({
           onPickWorkspace={onPickWorkspace}
           onOpenTif={onOpenTif}
           onOpenNd2={onOpenNd2}
+          onOpenCzi={onOpenCzi}
           onClearSource={onClearSource}
         />
 

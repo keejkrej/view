@@ -4,6 +4,7 @@ use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
+use czi_rs::{CziFile, Dimension as CziDimension, PlaneIndex};
 use nd2_rs::Nd2File;
 use png::{BitDepth, ColorType, Decoder as PngDecoder};
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,7 @@ use view_domain::{
     SaveBboxResponse, ViewerSource,
 };
 use view_image::{
-    collect_tiffs, find_position_dir, load_tiff_frame, load_tiff_frame_page, RawFrame,
+    collect_tiffs, czi_bitmap_to_u16, find_position_dir, load_tiff_frame, load_tiff_frame_page, RawFrame,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -721,6 +722,102 @@ where
     Ok(workspace_roi_pos_dir_path(workspace_path, pos))
 }
 
+fn crop_czi_source<F>(
+    workspace_path: &str,
+    path: &Path,
+    pos: u32,
+    bboxes: &[RoiBbox],
+    progress: &mut F,
+) -> Result<PathBuf, String>
+where
+    F: FnMut(f64, &str) -> Result<(), String>,
+{
+    let mut czi = CziFile::open(path).map_err(|err| err.to_string())?;
+    let sizes = czi.sizes().map_err(|err| err.to_string())?;
+    let positions = dimension_values(&sizes, "S");
+    let channels = dimension_values(&sizes, "C");
+    let times = dimension_values(&sizes, "T");
+    let z_slices = dimension_values(&sizes, "Z");
+    if !positions.contains(&pos) {
+        return Err(format!("Position index {pos} is out of range"));
+    }
+
+    let pos_index = validate_request_index("Position", pos, dimension_size(&sizes, "S"))?;
+    let time_count = dimension_size(&sizes, "T");
+    let channel_count = dimension_size(&sizes, "C");
+    let z_count = dimension_size(&sizes, "Z");
+
+    let preview_plane = PlaneIndex::new()
+        .with(CziDimension::S, pos_index)
+        .with(CziDimension::T, 0)
+        .with(CziDimension::C, 0)
+        .with(CziDimension::Z, 0);
+    let preview_bitmap = czi.read_plane(&preview_plane).map_err(|err| err.to_string())?;
+    validate_bboxes(bboxes, preview_bitmap.width, preview_bitmap.height)?;
+
+    prepare_roi_output_dir(workspace_path, pos)?;
+    progress(0.02, &format!("Opening ROI TIFF writers for Pos{pos}"))?;
+    let mut encoders = bboxes
+        .iter()
+        .map(|bbox| {
+            let path = workspace_roi_tiff_path(workspace_path, pos, bbox.roi);
+            let file = File::create(path).map_err(|err| err.to_string())?;
+            TiffEncoder::new(BufWriter::new(file)).map_err(|err| err.to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let total_planes = times.len() * channels.len() * z_slices.len();
+    let mut processed_planes = 0usize;
+    for time in &times {
+        let time_index = validate_request_index("Time", *time, time_count)?;
+        for channel in &channels {
+            let channel_index = validate_request_index("Channel", *channel, channel_count)?;
+            for z in &z_slices {
+                let z_index = validate_request_index("Z", *z, z_count)?;
+                let plane = PlaneIndex::new()
+                    .with(CziDimension::S, pos_index)
+                    .with(CziDimension::T, time_index)
+                    .with(CziDimension::C, channel_index)
+                    .with(CziDimension::Z, z_index);
+                let bitmap = czi.read_plane(&plane).map_err(|err| err.to_string())?;
+                let frame = czi_bitmap_to_u16(bitmap)?;
+
+                for (encoder, bbox) in encoders.iter_mut().zip(bboxes.iter()) {
+                    let cropped = crop_u16_frame(&frame, preview_bitmap.width, bbox);
+                    encoder
+                        .write_image::<colortype::Gray16>(bbox.w, bbox.h, &cropped)
+                        .map_err(|err| err.to_string())?;
+                }
+                processed_planes += 1;
+                let plane_progress = if total_planes == 0 {
+                    1.0
+                } else {
+                    processed_planes as f64 / total_planes as f64
+                };
+                progress(
+                    0.02 + plane_progress * 0.96,
+                    &format!("Cropping frame {processed_planes}/{total_planes} for Pos{pos}"),
+                )?;
+            }
+        }
+    }
+
+    progress(0.99, &format!("Writing ROI index for Pos{pos}"))?;
+    write_roi_index(
+        workspace_path,
+        pos,
+        ViewerSource::Czi {
+            path: path.to_string_lossy().to_string(),
+        },
+        &times,
+        &channels,
+        &z_slices,
+        bboxes,
+    )?;
+    progress(1.0, &format!("Finished ROI crop for Pos{pos}"))?;
+    Ok(workspace_roi_pos_dir_path(workspace_path, pos))
+}
+
 pub fn scan_roi_workspace(workspace_path: String) -> Result<RoiWorkspaceScan, String> {
     let root = Path::new(&workspace_path).join("roi");
     if !root.is_dir() {
@@ -858,6 +955,10 @@ where
         ViewerSource::Nd2 { path } => {
             progress(0.01, &format!("Opening ND2 source for Pos{pos}"))?;
             crop_nd2_source(&workspace_path, Path::new(path), pos, &bboxes, progress)
+        }
+        ViewerSource::Czi { path } => {
+            progress(0.01, &format!("Opening CZI source for Pos{pos}"))?;
+            crop_czi_source(&workspace_path, Path::new(path), pos, &bboxes, progress)
         }
     });
 

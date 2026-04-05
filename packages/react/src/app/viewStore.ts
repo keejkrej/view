@@ -123,7 +123,7 @@ function parseStoredSource(raw: string | null): ViewerSource | null {
     if (
       parsed &&
       typeof parsed === "object" &&
-      (parsed.kind === "tif" || parsed.kind === "nd2") &&
+      (parsed.kind === "tif" || parsed.kind === "nd2" || parsed.kind === "czi") &&
       typeof parsed.path === "string" &&
       parsed.path
     ) {

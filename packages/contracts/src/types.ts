@@ -65,7 +65,12 @@ export interface Nd2Source {
   path: string;
 }
 
-export type ViewerSource = TifSource | Nd2Source;
+export interface CziSource {
+  kind: "czi";
+  path: string;
+}
+
+export type ViewerSource = TifSource | Nd2Source | CziSource;
 
 export type PixelType =
   | "uint8"
@@ -147,6 +152,7 @@ export interface ViewerHostPort {
   pickWorkspace(): Promise<string | null>;
   pickTifDirectory(): Promise<string | null>;
   pickNd2File(): Promise<string | null>;
+  pickCziFile(): Promise<string | null>;
   roiPosExists(workspacePath: string, pos: number): Promise<boolean>;
 }
 

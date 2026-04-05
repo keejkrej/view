@@ -188,6 +188,10 @@ export function createTauriDesktopPorts(): TauriDesktopPorts {
       return invoke("pick_nd2");
     },
 
+    pickCziFile() {
+      return invoke("pick_czi");
+    },
+
     roiPosExists(workspacePath: string, pos: number) {
       return invoke("roi_pos_exists", {
         workspace_path: workspacePath,

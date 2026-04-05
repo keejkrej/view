@@ -67,6 +67,7 @@ interface RoiWorkspaceProps {
   onPickWorkspace: () => Promise<void>;
   onOpenTif: () => Promise<void>;
   onOpenNd2: () => Promise<void>;
+  onOpenCzi: () => Promise<void>;
   onClearSource: () => void;
 }
 
@@ -378,6 +379,7 @@ export default function RoiWorkspace({
   onPickWorkspace,
   onOpenTif,
   onOpenNd2,
+  onOpenCzi,
   onClearSource,
 }: RoiWorkspaceProps) {
   const frameCacheRef = useRef(new FrameCache());
@@ -790,6 +792,7 @@ export default function RoiWorkspace({
           onPickWorkspace={onPickWorkspace}
           onOpenTif={onOpenTif}
           onOpenNd2={onOpenNd2}
+          onOpenCzi={onOpenCzi}
           onClearSource={onClearSource}
         />
 

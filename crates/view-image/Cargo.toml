@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+czi-rs = "0.1.0"
 nd2-rs = "0.1.6"
 tiff = "0.10"
 walkdir = "2.5"

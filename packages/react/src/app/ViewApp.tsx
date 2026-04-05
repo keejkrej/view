@@ -52,6 +52,12 @@ export default function ViewApp({
     if (selected) setSource({ kind: "nd2", path: selected });
   };
 
+  const handlePickCzi = async () => {
+    if (!workspacePath) return;
+    const selected = await hostPort.pickCziFile();
+    if (selected) setSource({ kind: "czi", path: selected });
+  };
+
   return (
     mode === "align" ? (
       <ViewerWorkspace
@@ -64,6 +70,7 @@ export default function ViewApp({
         onPickWorkspace={handlePickWorkspace}
         onOpenTif={handlePickTif}
         onOpenNd2={handlePickNd2}
+        onOpenCzi={handlePickCzi}
         onCheckRoiExists={hostPort.roiPosExists}
         onClearSource={() => setSource(null)}
       />
@@ -78,6 +85,7 @@ export default function ViewApp({
         onPickWorkspace={handlePickWorkspace}
         onOpenTif={handlePickTif}
         onOpenNd2={handlePickNd2}
+        onOpenCzi={handlePickCzi}
         onClearSource={() => setSource(null)}
       />
     )

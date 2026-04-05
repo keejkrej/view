@@ -14,6 +14,7 @@ interface ViewNavbarProps {
   onPickWorkspace: () => Promise<void>;
   onOpenTif: () => Promise<void>;
   onOpenNd2: () => Promise<void>;
+  onOpenCzi: () => Promise<void>;
   onClearSource: () => void;
 }
 
@@ -97,6 +98,7 @@ export default function ViewNavbar({
   onPickWorkspace,
   onOpenTif,
   onOpenNd2,
+  onOpenCzi,
   onClearSource,
 }: ViewNavbarProps) {
   const [openDataModalOpen, setOpenDataModalOpen] = useState(false);
@@ -130,12 +132,23 @@ export default function ViewNavbar({
     await onOpenNd2();
   };
 
+  const handleOpenCzi = async () => {
+    setOpenDataModalOpen(false);
+    await onOpenCzi();
+  };
+
   const handleSourceClear = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onClearSource();
   };
 
-  const sourceBadge = source?.kind === "nd2" ? "ND2" : source?.kind === "tif" ? "TIFF" : null;
+  const sourceBadge = source?.kind === "nd2"
+    ? "ND2"
+    : source?.kind === "tif"
+      ? "TIFF"
+      : source?.kind === "czi"
+        ? "CZI"
+        : null;
 
   return (
     <>
@@ -266,17 +279,13 @@ export default function ViewNavbar({
 
                 <button
                   type="button"
-                  disabled
-                  aria-disabled="true"
-                  className="flex min-h-36 w-full flex-col items-start justify-center rounded-2xl border border-border/55 bg-muted/[0.08] px-5 py-5 text-left opacity-60"
+                  className="group flex min-h-36 w-full flex-col items-start justify-center rounded-2xl border border-border/70 bg-muted/[0.12] px-5 py-5 text-left transition-colors hover:border-primary/35 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => void handleOpenCzi()}
                 >
                   <div className="flex items-center gap-2">
-                    <p className="text-[1.1rem] font-medium tracking-[0.02em] text-foreground">
+                    <p className="text-[1.1rem] font-medium tracking-[0.02em] text-foreground transition-colors group-hover:text-primary">
                       CZI
                     </p>
-                    <span className="rounded-full border border-border/70 bg-background/55 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                      Soon
-                    </span>
                   </div>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     Zeiss acquisition file
