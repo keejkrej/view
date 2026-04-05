@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { FolderOpen, X } from "lucide-react";
+import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactNode, useEffect, useState } from "react";
+import { FolderOpen, HardDrive, X } from "lucide-react";
 
 import type { ViewerSource } from "@view/contracts";
 import { Button } from "@view/ui";
@@ -17,6 +17,78 @@ interface ViewNavbarProps {
   onClearSource: () => void;
 }
 
+function pathBaseName(path: string | null) {
+  if (!path) return null;
+  const segments = path.split(/[\\/]/).filter(Boolean);
+  return segments.at(-1) ?? path;
+}
+
+function ContextSummary({
+  label,
+  value,
+  icon,
+  badge,
+  onClick,
+  disabled = false,
+  action,
+}: {
+  label: string;
+  value: string | null;
+  icon: ReactNode;
+  badge?: string | null;
+  onClick?: () => void;
+  disabled?: boolean;
+  action?: ReactNode;
+}) {
+  const baseName = pathBaseName(value);
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (disabled || !onClick) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick();
+    }
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={() => {
+        if (!disabled) onClick?.();
+      }}
+      onKeyDown={handleKeyDown}
+      className={[
+        "min-w-0 max-w-[22rem] rounded-xl border border-border/55 bg-muted/15 px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        disabled
+          ? "cursor-default opacity-65"
+          : "cursor-pointer hover:border-border/80 hover:bg-muted/25",
+      ].join(" ")}
+      title={value ?? `${label} not selected`}
+    >
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className="shrink-0 text-muted-foreground/70">
+          {icon}
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">
+            {label}
+          </span>
+          <p className="truncate text-sm text-foreground/90">
+            {baseName ?? "Not selected"}
+          </p>
+          {badge ? (
+            <span className="shrink-0 rounded-full border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+              {badge}
+            </span>
+          ) : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export default function ViewNavbar({
   workspacePath,
   source,
@@ -32,7 +104,7 @@ export default function ViewNavbar({
   useEffect(() => {
     if (!openDataModalOpen) return undefined;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpenDataModalOpen(false);
       }
@@ -58,59 +130,70 @@ export default function ViewNavbar({
     await onOpenNd2();
   };
 
+  const handleSourceClear = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onClearSource();
+  };
+
+  const sourceBadge = source?.kind === "nd2" ? "ND2" : source?.kind === "tif" ? "TIFF" : null;
+
   return (
     <>
-      <header className="border-b border-border px-4 py-4 md:px-8">
-        <div className="relative flex items-center gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={() => void onPickWorkspace()}>
-              <span className="inline-flex items-center gap-2">
-                <FolderOpen className="size-4" />
-                Workspace
-              </span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!workspacePath}
-              onClick={() => setOpenDataModalOpen(true)}
-            >
-              Open Data
-            </Button>
-            {source ? (
-              <Button size="sm" variant="outline" onClick={onClearSource}>
-                <span className="inline-flex items-center gap-2">
-                  <X className="size-4" />
-                  Clear
-                </span>
+      <header className="border-b border-border/80 bg-background/95 px-4 py-3 backdrop-blur md:px-6 xl:px-8">
+        <div className="grid grid-cols-[1fr_minmax(0,56rem)_1fr] items-center gap-4">
+          <div />
+
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <ContextSummary
+                label="Workspace"
+                value={workspacePath}
+                icon={<FolderOpen className="size-4" />}
+                onClick={() => void onPickWorkspace()}
+              />
+              <ContextSummary
+                label="Source"
+                value={source?.path ?? null}
+                icon={<HardDrive className="size-4" />}
+                badge={sourceBadge}
+                disabled={!workspacePath}
+                onClick={() => setOpenDataModalOpen(true)}
+                action={
+                  source ? (
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="rounded-full"
+                      aria-label="Clear source"
+                      onClick={handleSourceClear}
+                    >
+                      <X className="size-3.5" />
+                    </Button>
+                  ) : null
+                }
+              />
+            </div>
+          </div>
+
+          <div className="justify-self-end">
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/35 p-1">
+              <Button
+                size="sm"
+                variant={mode === "align" ? "default" : "ghost"}
+                className="min-w-[4.5rem]"
+                onClick={() => onModeChange("align")}
+              >
+                Align
               </Button>
-            ) : null}
-          </div>
-
-          <div className="pointer-events-none absolute left-1/2 flex max-w-[min(68vw,56rem)] -translate-x-1/2 flex-col text-center text-sm text-muted-foreground">
-            <p className="truncate">
-              {workspacePath ? `Workspace: ${workspacePath}` : "Workspace: not selected"}
-            </p>
-            <p className="truncate">{source ? `Source: ${source.path}` : "Source: not selected"}</p>
-          </div>
-
-          <div className="ml-auto flex items-center gap-1 rounded-xl border border-border bg-muted/35 p-1">
-            <Button
-              size="sm"
-              variant={mode === "align" ? "default" : "ghost"}
-              className="min-w-[4.5rem]"
-              onClick={() => onModeChange("align")}
-            >
-              Align
-            </Button>
-            <Button
-              size="sm"
-              variant={mode === "roi" ? "default" : "ghost"}
-              className="min-w-[4.5rem]"
-              onClick={() => onModeChange("roi")}
-            >
-              ROI
-            </Button>
+              <Button
+                size="sm"
+                variant={mode === "roi" ? "default" : "ghost"}
+                className="min-w-[4.5rem]"
+                onClick={() => onModeChange("roi")}
+              >
+                ROI
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -125,25 +208,20 @@ export default function ViewNavbar({
           }}
         >
           <div
-            className="w-full max-w-xl overflow-hidden rounded-[1.75rem] border border-border/80 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--color-card)_94%,white)_0%,var(--color-card)_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.35)]"
+            className="w-full max-w-lg rounded-[1.25rem] border border-border/80 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.35)]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="open-data-title"
           >
-            <div className="border-b border-border/70 px-6 py-5">
+            <div className="px-5 pb-3 pt-5">
               <div className="flex items-start justify-between gap-4">
-                <div className="space-y-3">
-                  <span className="inline-flex items-center rounded-full border border-border/70 bg-muted/60 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    Select A Format
-                  </span>
-                  <div className="space-y-1.5">
-                    <h2 id="open-data-title" className="text-[1.75rem] font-medium tracking-tight text-foreground">
-                      Open Data
-                    </h2>
-                    <p className="max-w-lg text-sm leading-6 text-muted-foreground">
-                      Choose the source format to load into the selected workspace.
-                    </p>
-                  </div>
+                <div className="space-y-1">
+                  <h2 id="open-data-title" className="text-[1.4rem] font-medium tracking-tight text-foreground">
+                    Open Data
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Choose a source format.
+                  </p>
                 </div>
 
                 <Button
@@ -158,35 +236,52 @@ export default function ViewNavbar({
               </div>
             </div>
 
-            <div className="p-6">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="px-5 pb-5">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <button
                   type="button"
-                  className="group flex min-h-28 w-full items-center justify-center rounded-2xl border border-border/70 bg-muted/[0.18] px-6 py-5 text-center transition-colors hover:border-primary/35 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="group flex min-h-36 w-full flex-col items-start justify-center rounded-2xl border border-border/70 bg-muted/[0.12] px-5 py-5 text-left transition-colors hover:border-primary/35 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => void handleOpenTif()}
                 >
-                  <span className="text-lg font-medium tracking-[0.02em] text-foreground transition-colors group-hover:text-primary">
+                  <p className="text-[1.1rem] font-medium tracking-[0.02em] text-foreground transition-colors group-hover:text-primary">
                     TIFF
-                  </span>
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Folder with Pos{"{n}"} stacks
+                  </p>
                 </button>
 
                 <button
                   type="button"
-                  className="group flex min-h-28 w-full items-center justify-center rounded-2xl border border-border/70 bg-muted/[0.18] px-6 py-5 text-center transition-colors hover:border-primary/35 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="group flex min-h-36 w-full flex-col items-start justify-center rounded-2xl border border-border/70 bg-muted/[0.12] px-5 py-5 text-left transition-colors hover:border-primary/35 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => void handleOpenNd2()}
                 >
-                  <span className="text-lg font-medium tracking-[0.02em] text-foreground transition-colors group-hover:text-primary">
+                  <p className="text-[1.1rem] font-medium tracking-[0.02em] text-foreground transition-colors group-hover:text-primary">
                     ND2
-                  </span>
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Nikon acquisition file
+                  </p>
                 </button>
-              </div>
-            </div>
 
-            <div className="flex justify-end border-t border-border/70 px-6 py-4">
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" onClick={() => setOpenDataModalOpen(false)}>
-                  Cancel
-                </Button>
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="flex min-h-36 w-full flex-col items-start justify-center rounded-2xl border border-border/55 bg-muted/[0.08] px-5 py-5 text-left opacity-60"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="text-[1.1rem] font-medium tracking-[0.02em] text-foreground">
+                      CZI
+                    </p>
+                    <span className="rounded-full border border-border/70 bg-background/55 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      Soon
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Zeiss acquisition file
+                  </p>
+                </button>
               </div>
             </div>
           </div>

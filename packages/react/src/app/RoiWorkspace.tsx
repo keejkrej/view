@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
@@ -43,6 +43,11 @@ import {
   scanRoiWorkspaceEffect,
   toErrorMessage,
 } from "./viewEffects";
+import {
+  SidebarField,
+  SidebarSection,
+  SidebarValue,
+} from "./sidebar";
 import RoiAnnotationModal from "./RoiAnnotationModal";
 import ViewNavbar, { type ViewerMode } from "./ViewNavbar";
 
@@ -124,46 +129,6 @@ class FrameCache {
       this.map.delete(first);
     }
   }
-}
-
-function PanelCard({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="space-y-3 py-4 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium text-foreground">{title}</h2>
-        {action}
-      </div>
-      <div className="space-y-3">{children}</div>
-    </section>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3">
-        <label className="text-xs font-medium text-muted-foreground">{label}</label>
-        {hint ? <span className="text-xs text-muted-foreground/80">{hint}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
 }
 
 function AppSelect<T extends SelectValue>({
@@ -789,14 +754,10 @@ export default function RoiWorkspace({
   }, [backend, visibleRequestSignature, visibleRoiRequests]);
 
   const emptyText = useMemo(() => {
-    if (!hasWorkspace) return "Select a workspace folder that contains cropped ROI TIFFs";
     if (loading) return "Scanning workspace ROI output...";
     if (error) return error;
-    if (!hasRoiPositions) return "No ROI crops found under workspace/roi";
-    if (!position) return "No ROI position selected";
-    if (roiEntries.length === 0) return `No ROI TIFFs found for Pos${position.pos}`;
-    return "No ROI frame loaded";
-  }, [error, hasRoiPositions, hasWorkspace, loading, position, roiEntries.length]);
+    return null;
+  }, [error, loading]);
 
   const openAnnotationModal = useMemo(
     () =>
@@ -833,80 +794,96 @@ export default function RoiWorkspace({
         />
 
         <main className="flex-1 min-h-0 overflow-hidden">
-          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_16rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_18rem]">
+          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_18rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_20rem]">
             <aside className="divide-y divide-border border-b border-border px-4 py-3 md:border-b-0 md:border-r lg:h-full lg:min-h-0 lg:overflow-y-auto xl:px-5">
-              <PanelCard title="ROI">
-                <Field label="Position">
+              <SidebarSection title="ROI Stack">
+                <SidebarField label="Position">
                   <AppSelect
                     value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
                     options={positionOptions}
                     disabled={!hasRoiPositions || !selection}
                     onChange={(value) => setRoiSelectionKey("pos", value)}
                   />
-                </Field>
-                <Field label="Channel">
+                </SidebarField>
+                <SidebarField label="Channel">
                   <AppSelect
                     value={selection?.channel ?? (channelOptions[0]?.value ?? 0)}
                     options={channelOptions}
                     disabled={controlsDisabled}
                     onChange={(value) => setRoiSelectionKey("channel", value)}
                   />
-                </Field>
-                <Field label="Time" hint={String(timeValues[timeSliderIndex] ?? selection?.time ?? 0)}>
-                  {timeValues.length <= 1 ? (
-                    <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                      {String(timeValues[0] ?? selection?.time ?? 0)}
-                    </div>
-                  ) : (
-                    <AppSlider
-                      value={timeSliderIndex}
-                      min={0}
-                      max={timeSliderMax}
-                      step={1}
-                      disabled={controlsDisabled}
-                      onChange={(nextIndex) =>
-                        setTimeSliderIndexValue(clamp(Math.round(nextIndex), 0, timeSliderMax))
+                </SidebarField>
+                <SidebarField
+                  label="Timepoint"
+                  hint={String(timeValues[timeSliderIndex] ?? selection?.time ?? 0)}
+                >
+                  <AppSlider
+                    value={timeSliderIndex}
+                    min={0}
+                    max={timeSliderMax}
+                    step={1}
+                    disabled={controlsDisabled || timeValues.length <= 1}
+                    onChange={(nextIndex) =>
+                      setTimeSliderIndexValue(clamp(Math.round(nextIndex), 0, timeSliderMax))
+                    }
+                    onCommit={(nextIndex) => {
+                      const rounded = clamp(Math.round(nextIndex), 0, timeSliderMax);
+                      setTimeSliderIndexValue(rounded);
+                      const nextTime = timeValues[rounded];
+                      if (nextTime != null && nextTime !== selection?.time) {
+                        setRoiSelectionKey("time", nextTime);
                       }
-                      onCommit={(nextIndex) => {
-                        const rounded = clamp(Math.round(nextIndex), 0, timeSliderMax);
-                        setTimeSliderIndexValue(rounded);
-                        const nextTime = timeValues[rounded];
+                    }}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={controlsDisabled || timeValues.length <= 1 || timeSliderIndex <= 0}
+                      onClick={() => {
+                        const nextIndex = Math.max(0, timeSliderIndex - 1);
+                        setTimeSliderIndexValue(nextIndex);
+                        const nextTime = timeValues[nextIndex];
                         if (nextTime != null && nextTime !== selection?.time) {
                           setRoiSelectionKey("time", nextTime);
                         }
                       }}
-                    />
-                  )}
-                </Field>
-                <Field label="Z Slice">
+                    >
+                      {"<"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        controlsDisabled || timeValues.length <= 1 || timeSliderIndex >= timeSliderMax
+                      }
+                      onClick={() => {
+                        const nextIndex = Math.min(timeSliderMax, timeSliderIndex + 1);
+                        setTimeSliderIndexValue(nextIndex);
+                        const nextTime = timeValues[nextIndex];
+                        if (nextTime != null && nextTime !== selection?.time) {
+                          setRoiSelectionKey("time", nextTime);
+                        }
+                      }}
+                    >
+                      {">"}
+                    </Button>
+                  </div>
+                </SidebarField>
+                <SidebarField label="Z Plane">
                   <AppSelect
                     value={selection?.z ?? (zOptions[0]?.value ?? 0)}
                     options={zOptions}
                     disabled={controlsDisabled}
                     onChange={(value) => setRoiSelectionKey("z", value)}
                   />
-                </Field>
-              </PanelCard>
-            </aside>
-
-            <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
-              <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-3 md:px-4">
-                  <div className="space-y-0.5">
-                    <p className="text-sm font-medium text-foreground">
-                      {position ? `Pos${position.pos}` : "ROI Workspace"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Page {boundedPageIndex + 1} of {pageCount}
-                      {" | "}
-                      {roiEntries.length} ROI{roiEntries.length === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+                </SidebarField>
+                <SidebarField label="Page" hint={`${boundedPageIndex + 1} of ${pageCount}`}>
+                  <div className="grid grid-cols-2 gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={boundedPageIndex <= 0 || roiEntries.length === 0}
+                      disabled={boundedPageIndex <= 0}
                       onClick={() => setRoiPageIndex((current) => Math.max(0, current - 1))}
                     >
                       <ChevronLeft className="size-4" />
@@ -915,57 +892,87 @@ export default function RoiWorkspace({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={boundedPageIndex >= pageCount - 1 || roiEntries.length === 0}
-                      onClick={() =>
-                        setRoiPageIndex((current) => Math.min(pageCount - 1, current + 1))
-                      }
+                      disabled={boundedPageIndex >= pageCount - 1}
+                      onClick={() => setRoiPageIndex((current) => Math.min(pageCount - 1, current + 1))}
                     >
                       Next
                       <ChevronRight className="size-4" />
                     </Button>
                   </div>
-                </div>
+                </SidebarField>
+              </SidebarSection>
 
-                <div className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
-                  {roiEntries.length === 0 ? (
-                    <div className="flex h-full min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-border/80 bg-card/40 px-6 text-center text-sm text-muted-foreground">
-                      {emptyText}
-                    </div>
-                  ) : (
-                    <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                      {visibleRois.map((roi) => (
-                        <RoiTile
-                          key={roi.roi}
-                          roi={roi}
-                          tileState={tileStates[roi.roi]}
-                          annotationState={
-                            workspacePath && selection
-                              ? annotationStatuses[
-                                  makeRoiFrameKey(workspacePath, {
-                                    pos: selection.pos,
-                                    roi: roi.roi,
-                                    channel: selection.channel,
-                                    time: selection.time,
-                                    z: selection.z,
-                                  })
-                                ]
-                              : undefined
-                          }
-                          annotationLabels={annotationLabelsState.labels}
-                          selected={selectedRoi === roi.roi}
-                          onSelect={() => setSelectedRoi(roi.roi)}
-                          onAnnotate={() => openAnnotationModal(roi, tileStates[roi.roi]?.frame ?? null)}
-                        />
-                      ))}
-                    </div>
-                  )}
+              <SidebarSection title="Files">
+                <SidebarField label="ROI Output Folder">
+                  <SidebarValue monospace>
+                    {selection ? `roi/Pos${selection.pos}` : "roi/Pos{n}"}
+                  </SidebarValue>
+                </SidebarField>
+                <SidebarField label="Selected File">
+                  <SidebarValue monospace>
+                    {selection && selectedRoiEntry
+                      ? `roi/Pos${selection.pos}/${selectedRoiEntry.fileName}`
+                      : "roi/Pos{n}/Roi{m}.tif"}
+                  </SidebarValue>
+                </SidebarField>
+                <SidebarField label="Source Dataset">
+                  <SidebarValue monospace>
+                    {position ? `${position.source.kind.toUpperCase()}: ${position.source.path}` : "No ROI source"}
+                  </SidebarValue>
+                </SidebarField>
+              </SidebarSection>
+            </aside>
+
+            <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
+              <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                <div className="m-3 min-h-0 flex-1 overflow-auto md:m-4 md:mt-3">
+                  <div className="min-h-full rounded-2xl border border-border/60 bg-card/10 p-3 md:p-4">
+                    {roiEntries.length === 0 ? (
+                      emptyText ? (
+                        <div className="flex h-full min-h-[18rem] items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                          {emptyText}
+                        </div>
+                      ) : (
+                        <div className="h-full min-h-[18rem]" />
+                      )
+                    ) : (
+                      <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                        {visibleRois.map((roi) => (
+                          <RoiTile
+                            key={roi.roi}
+                            roi={roi}
+                            tileState={tileStates[roi.roi]}
+                            annotationState={
+                              workspacePath && selection
+                                ? annotationStatuses[
+                                    makeRoiFrameKey(workspacePath, {
+                                      pos: selection.pos,
+                                      roi: roi.roi,
+                                      channel: selection.channel,
+                                      time: selection.time,
+                                      z: selection.z,
+                                    })
+                                  ]
+                                : undefined
+                            }
+                            annotationLabels={annotationLabelsState.labels}
+                            selected={selectedRoi === roi.roi}
+                            onSelect={() => setSelectedRoi(roi.roi)}
+                            onAnnotate={() =>
+                              openAnnotationModal(roi, tileStates[roi.roi]?.frame ?? null)
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
 
             <aside className="divide-y divide-border border-t border-border px-4 py-3 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l xl:px-5">
-              <PanelCard
-                title="Selection"
+              <SidebarSection
+                title="Selected ROI"
                 action={
                   <Button
                     size="sm"
@@ -981,24 +988,24 @@ export default function RoiWorkspace({
                   </Button>
                 }
               >
-                <Field label="ROI ID">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">
+                <SidebarField label="ROI">
+                  <SidebarValue tone="default">
                     {selectedRoiEntry ? `ROI ${selectedRoiEntry.roi}` : "No ROI selected"}
-                  </div>
-                </Field>
-                <Field label="BBox">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                  </SidebarValue>
+                </SidebarField>
+                <SidebarField label="Bounding Box">
+                  <SidebarValue>
                     {selectedRoiEntry
                       ? `${selectedRoiEntry.bbox.x}, ${selectedRoiEntry.bbox.y}, ${selectedRoiEntry.bbox.w}, ${selectedRoiEntry.bbox.h}`
                       : "x, y, w, h"}
-                  </div>
-                </Field>
-                <Field label="Stack Shape">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                  </SidebarValue>
+                </SidebarField>
+                <SidebarField label="Stack Dimensions">
+                  <SidebarValue>
                     {selectedRoiEntry ? selectedRoiEntry.shape.join(" x ") : "T x C x Z x Y x X"}
-                  </div>
-                </Field>
-                <Field label="Annotation">
+                  </SidebarValue>
+                </SidebarField>
+                <SidebarField label="Annotation">
                   <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
                     {selectedAnnotationStatus?.annotation?.classificationLabelId ? (
                       <span
@@ -1022,33 +1029,13 @@ export default function RoiWorkspace({
                       <span className="text-sm text-muted-foreground">No annotation saved</span>
                     ) : null}
                   </div>
-                </Field>
+                </SidebarField>
                 {annotationLabelsState.error ? (
                   <div className="rounded-lg border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
                     {annotationLabelsState.error}
                   </div>
                 ) : null}
-              </PanelCard>
-
-              <PanelCard title="Data">
-                <Field label="ROI Output">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                    {selection ? `roi/Pos${selection.pos}/Roi{m}.tif` : "roi/Pos{n}/Roi{m}.tif"}
-                  </div>
-                </Field>
-                <Field label="Selected File">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                    {selection && selectedRoiEntry
-                      ? `roi/Pos${selection.pos}/${selectedRoiEntry.fileName}`
-                      : "roi/Pos{n}/Roi{m}.tif"}
-                  </div>
-                </Field>
-                <Field label="Source">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                    {position ? `${position.source.kind.toUpperCase()}: ${position.source.path}` : "No ROI source"}
-                  </div>
-                </Field>
-              </PanelCard>
+              </SidebarSection>
             </aside>
           </div>
         </main>

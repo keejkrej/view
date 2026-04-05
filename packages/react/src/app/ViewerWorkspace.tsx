@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect";
 import type { ChangeEvent, KeyboardEvent } from "react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
@@ -65,7 +65,6 @@ import {
   setSelectionMode,
   setTimeSliderIndex,
   toggleExcludedCells,
-  toggleGridEnabled,
   viewStore,
 } from "./viewStore";
 import {
@@ -75,6 +74,13 @@ import {
   scanSourceEffect,
   toErrorMessage,
 } from "./viewEffects";
+import {
+  SidebarField,
+  SidebarSection,
+  SidebarSegmentedToggle,
+  SidebarStat,
+  SidebarValue,
+} from "./sidebar";
 import ViewNavbar, { type ViewerMode } from "./ViewNavbar";
 
 type SelectValue = number | string;
@@ -135,46 +141,6 @@ class FrameCache {
       this.map.delete(first);
     }
   }
-}
-
-function PanelCard({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="space-y-3 py-4 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium text-foreground">{title}</h2>
-        {action}
-      </div>
-      <div className="space-y-3">{children}</div>
-    </section>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3">
-        <label className="text-xs font-medium text-muted-foreground">{label}</label>
-        {hint ? <span className="text-xs text-muted-foreground/80">{hint}</span> : null}
-      </div>
-      {children}
-    </div>
-  );
 }
 
 function NumberInput({
@@ -725,8 +691,8 @@ export default function ViewerWorkspace({
   }, [selection]);
 
   const roiPath = useMemo(() => {
-    if (!selection) return "roi/Pos{n}/Roi{m}.tif";
-    return `roi/Pos${selection.pos}/Roi{m}.tif`;
+    if (!selection) return "roi/Pos{n}";
+    return `roi/Pos${selection.pos}`;
   }, [selection]);
   const cropProgressPercent = Math.round(cropProgress.progress * 100);
   const canvasCursor = selectionMode ? "crosshair" : grid.enabled ? (previewGrid ? "grabbing" : "grab") : "default";
@@ -850,26 +816,26 @@ export default function ViewerWorkspace({
         />
 
         <main className="flex-1 min-h-0 overflow-hidden">
-          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_16rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_18rem]">
+          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_18rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_20rem]">
             <aside className="divide-y divide-border border-b border-border px-4 py-3 md:border-b-0 md:border-r lg:h-full lg:min-h-0 lg:overflow-y-auto xl:px-5">
-              <PanelCard title="Image">
-                <Field label="Position">
+              <SidebarSection title="Frame">
+                <SidebarField label="Position">
                   <AppSelect
                     value={selection?.pos ?? (positionOptions[0]?.value ?? 0)}
                     options={positionOptions}
                     disabled={controlsDisabled}
                     onChange={(value) => setSelectionKey("pos", value)}
                   />
-                </Field>
-                <Field label="Channel">
+                </SidebarField>
+                <SidebarField label="Channel">
                   <AppSelect
                     value={selection?.channel ?? (channelOptions[0]?.value ?? 0)}
                     options={channelOptions}
                     disabled={controlsDisabled}
                     onChange={(value) => setSelectionKey("channel", value)}
                   />
-                </Field>
-                <Field label="Time" hint={String(displayedTime)}>
+                </SidebarField>
+                <SidebarField label="Timepoint" hint={String(displayedTime)}>
                   <AppSlider
                     value={timeSliderIndex}
                     min={0}
@@ -886,19 +852,53 @@ export default function ViewerWorkspace({
                       }
                     }}
                   />
-                </Field>
-                <Field label="Z Slice">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={controlsDisabled || timeValues.length <= 1 || timeSliderIndex <= 0}
+                      onClick={() => {
+                        const nextIndex = Math.max(0, timeSliderIndex - 1);
+                        setTimeSliderIndex(nextIndex);
+                        const nextTime = timeValues[nextIndex];
+                        if (nextTime != null && nextTime !== selection?.time) {
+                          setSelectionKey("time", nextTime);
+                        }
+                      }}
+                    >
+                      {"<"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        controlsDisabled || timeValues.length <= 1 || timeSliderIndex >= timeSliderMax
+                      }
+                      onClick={() => {
+                        const nextIndex = Math.min(timeSliderMax, timeSliderIndex + 1);
+                        setTimeSliderIndex(nextIndex);
+                        const nextTime = timeValues[nextIndex];
+                        if (nextTime != null && nextTime !== selection?.time) {
+                          setSelectionKey("time", nextTime);
+                        }
+                      }}
+                    >
+                      {">"}
+                    </Button>
+                  </div>
+                </SidebarField>
+                <SidebarField label="Z Plane">
                   <AppSelect
                     value={selection?.z ?? (zOptions[0]?.value ?? 0)}
                     options={zOptions}
                     disabled={controlsDisabled}
                     onChange={(value) => setSelectionKey("z", value)}
                   />
-                </Field>
-              </PanelCard>
+                </SidebarField>
+              </SidebarSection>
 
-              <PanelCard
-                title="Contrast"
+              <SidebarSection
+                title="Intensity"
                 action={
                   <Button
                     size="sm"
@@ -907,11 +907,11 @@ export default function ViewerWorkspace({
                     className="h-7 px-2.5 text-xs"
                     onClick={reloadAutoContrast}
                   >
-                    Auto
+                    Auto Range
                   </Button>
                 }
               >
-                <Field label="Minimum" hint={String(displayedContrast.min)}>
+                <SidebarField label="Min Intensity" hint={String(displayedContrast.min)}>
                   <AppSlider
                     value={displayedContrast.min}
                     min={contrastDomain.min}
@@ -939,8 +939,8 @@ export default function ViewerWorkspace({
                       });
                     }}
                   />
-                </Field>
-                <Field label="Maximum" hint={String(displayedContrast.max)}>
+                </SidebarField>
+                <SidebarField label="Max Intensity" hint={String(displayedContrast.max)}>
                   <AppSlider
                     value={displayedContrast.max}
                     min={contrastMaxSliderMin}
@@ -968,8 +968,41 @@ export default function ViewerWorkspace({
                       });
                     }}
                   />
-                </Field>
-              </PanelCard>
+                </SidebarField>
+              </SidebarSection>
+
+              <SidebarSection title="Outputs">
+                <SidebarField label="Bounding Box CSV">
+                  <SidebarValue monospace>
+                    {bboxPath}
+                  </SidebarValue>
+                </SidebarField>
+                <SidebarField label="ROI Output Folder">
+                  <SidebarValue monospace>
+                    {roiPath}
+                  </SidebarValue>
+                </SidebarField>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    disabled={!workspacePath || !frame || !selection || saving || cropping}
+                    onClick={() => void handleSave()}
+                  >
+                    {saving ? "Saving..." : "Save CSV"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    disabled={!workspacePath || !source || !selection || saving || cropping}
+                    onClick={() => void handleCrop()}
+                  >
+                    {cropping ? "Cropping..." : "Crop ROIs"}
+                  </Button>
+                </div>
+              </SidebarSection>
             </aside>
 
             <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
@@ -997,41 +1030,44 @@ export default function ViewerWorkspace({
             </section>
 
             <aside className="divide-y divide-border border-t border-border px-4 py-3 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l xl:px-5">
-              <PanelCard
+              <SidebarSection
                 title="Grid"
                 action={
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-xs"
-                      disabled={controlsDisabled}
-                      onClick={resetGrid}
-                    >
-                      Reset
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={grid.enabled ? "default" : "outline"}
-                      className="h-7 min-w-12 px-2.5 text-xs"
-                      disabled={controlsDisabled}
-                      onClick={toggleGridEnabled}
-                    >
-                      {grid.enabled ? "On" : "Off"}
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2.5 text-xs"
+                    disabled={controlsDisabled}
+                    onClick={resetGrid}
+                  >
+                    Reset
+                  </Button>
                 }
               >
-                <Field label="Shape">
+                <SidebarField label="Overlay">
+                  <SidebarSegmentedToggle
+                    value={grid.enabled ? "visible" : "hidden"}
+                    options={[
+                      { label: "Hidden", value: "hidden" },
+                      { label: "Visible", value: "visible" },
+                    ]}
+                    compact
+                    disabled={controlsDisabled}
+                    onChange={(value) =>
+                      setGrid((current) => ({ ...current, enabled: value === "visible" }))
+                    }
+                  />
+                </SidebarField>
+                <SidebarField label="Grid Shape">
                   <AppSelect
                     value={grid.shape}
                     options={shapeOptions}
                     disabled={controlsDisabled}
                     onChange={(value) => setGrid((current) => ({ ...current, shape: value }))}
                   />
-                </Field>
+                </SidebarField>
 
-                <Field label="Rotation" hint={`${gridDegrees.toFixed(1)}°`}>
+                <SidebarField label="Rotation" hint={`${gridDegrees.toFixed(1)}°`}>
                   <AppSlider
                     value={gridDegrees}
                     min={-180}
@@ -1045,10 +1081,10 @@ export default function ViewerWorkspace({
                       }))
                     }
                   />
-                </Field>
+                </SidebarField>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Spacing A">
+                  <SidebarField label="Pitch A">
                     <NumberInput
                       value={grid.spacingA}
                       min={minGridSpacing}
@@ -1060,8 +1096,8 @@ export default function ViewerWorkspace({
                         }))
                       }
                     />
-                  </Field>
-                  <Field label="Spacing B">
+                  </SidebarField>
+                  <SidebarField label="Pitch B">
                     <NumberInput
                       value={grid.spacingB}
                       min={minGridSpacing}
@@ -1073,11 +1109,11 @@ export default function ViewerWorkspace({
                         }))
                       }
                     />
-                  </Field>
+                  </SidebarField>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Cell Width">
+                  <SidebarField label="Cell Width">
                     <NumberInput
                       value={grid.cellWidth}
                       disabled={controlsDisabled}
@@ -1088,8 +1124,8 @@ export default function ViewerWorkspace({
                         }))
                       }
                     />
-                  </Field>
-                  <Field label="Cell Height">
+                  </SidebarField>
+                  <SidebarField label="Cell Height">
                     <NumberInput
                       value={grid.cellHeight}
                       disabled={controlsDisabled}
@@ -1100,11 +1136,11 @@ export default function ViewerWorkspace({
                         }))
                       }
                     />
-                  </Field>
+                  </SidebarField>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Offset X">
+                  <SidebarField label="Offset X">
                     <NumberInput
                       value={grid.tx}
                       disabled={controlsDisabled}
@@ -1113,8 +1149,8 @@ export default function ViewerWorkspace({
                         setGrid((current) => ({ ...current, tx: Number.isFinite(value) ? value : 0 }))
                       }
                     />
-                  </Field>
-                  <Field label="Offset Y">
+                  </SidebarField>
+                  <SidebarField label="Offset Y">
                     <NumberInput
                       value={grid.ty}
                       disabled={controlsDisabled}
@@ -1123,10 +1159,10 @@ export default function ViewerWorkspace({
                         setGrid((current) => ({ ...current, ty: Number.isFinite(value) ? value : 0 }))
                       }
                     />
-                  </Field>
+                  </SidebarField>
                 </div>
 
-                <Field label="Overlay Opacity" hint={grid.opacity.toFixed(2)}>
+                <SidebarField label="Overlay" hint={grid.opacity.toFixed(2)}>
                   <AppSlider
                     value={grid.opacity}
                     min={0}
@@ -1137,80 +1173,40 @@ export default function ViewerWorkspace({
                       setGrid((current) => ({ ...current, opacity: clamp(value, 0, 1) }))
                     }
                   />
-                </Field>
-              </PanelCard>
+                </SidebarField>
+              </SidebarSection>
 
-              <PanelCard
-                title="Select"
-                action={
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-xs"
-                      disabled={!frame || !selection}
-                      onClick={handleExcludeEdgeBboxes}
-                    >
-                      Disable Edge
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={selectionMode ? "default" : "outline"}
-                      className="h-7 min-w-12 px-2.5 text-xs"
-                      disabled={controlsDisabled || !frame || !grid.enabled}
-                      onClick={() => setSelectionMode((current) => !current)}
-                    >
-                      {selectionMode ? "On" : "Off"}
-                    </Button>
-                  </div>
-                }
-              >
+              <SidebarSection title="Selection">
+                <SidebarField label="Mode">
+                  <SidebarSegmentedToggle
+                    value={selectionMode ? "edit" : "view"}
+                    options={[
+                      { label: "View", value: "view" },
+                      { label: "Edit", value: "edit" },
+                    ]}
+                    compact
+                    disabled={controlsDisabled || !frame || !grid.enabled}
+                    onChange={(value) => setSelectionMode(value === "edit")}
+                  />
+                </SidebarField>
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Included">
-                    <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-blue-300">
-                      {includedVisibleCount}
-                    </div>
-                  </Field>
-                  <Field label="Excluded">
-                    <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-rose-300">
-                      {excludedVisibleCount}
-                    </div>
-                  </Field>
+                  <SidebarField label="Included Cells">
+                    <SidebarStat value={includedVisibleCount} tone="info" />
+                  </SidebarField>
+                  <SidebarField label="Excluded Cells">
+                    <SidebarStat value={excludedVisibleCount} tone="danger" />
+                  </SidebarField>
                 </div>
-              </PanelCard>
-
-              <PanelCard title="Data">
-                <Field label="BBox CSV">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                    {bboxPath}
-                  </div>
-                </Field>
-                <Field label="ROI Output">
-                  <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-                    {roiPath}
-                  </div>
-                </Field>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-3 text-xs"
-                    disabled={!workspacePath || !frame || !selection || saving || cropping}
-                    onClick={() => void handleSave()}
-                  >
-                    {saving ? "Saving..." : "Save"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-3 text-xs"
-                    disabled={!workspacePath || !source || !selection || saving || cropping}
-                    onClick={() => void handleCrop()}
-                  >
-                    {cropping ? "Cropping..." : "Crop"}
-                  </Button>
-                </div>
-              </PanelCard>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full justify-center px-3 text-xs"
+                  disabled={!frame || !selection}
+                  onClick={handleExcludeEdgeBboxes}
+                >
+                  Exclude Edge Cells
+                </Button>
+              </SidebarSection>
             </aside>
           </div>
         </main>
