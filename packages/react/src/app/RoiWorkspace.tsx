@@ -276,16 +276,12 @@ function tileStatesEqual(
 function RoiTile({
   roi,
   tileState,
-  annotationState,
-  annotationLabels,
   selected,
   onSelect,
   onAnnotate,
 }: {
   roi: RoiIndexEntry;
   tileState: TileState | undefined;
-  annotationState: AnnotationStatusState | undefined;
-  annotationLabels: AnnotationLabel[] | null;
   selected: boolean;
   onSelect: () => void;
   onAnnotate: () => void;
@@ -294,20 +290,12 @@ function RoiTile({
     if (!tileState?.error) return undefined;
     return [{ tone: "error", text: tileState.error }];
   }, [tileState?.error]);
-  const classificationLabel = useMemo(
-    () =>
-      annotationLabels?.find(
-        (label) => label.id === annotationState?.annotation?.classificationLabelId,
-      ) ?? null,
-    [annotationLabels, annotationState?.annotation?.classificationLabelId],
-  );
-  const hasMask = Boolean(annotationState?.annotation?.maskPath);
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`flex min-h-0 cursor-pointer flex-col rounded-2xl border p-3 text-left transition-colors ${
+      className={`relative flex min-h-0 cursor-pointer flex-col overflow-hidden rounded-2xl border p-2 text-left transition-colors ${
         selected
           ? "border-primary/70 bg-primary/10 shadow-[0_0_0_1px_rgba(59,130,246,0.28)]"
           : "border-border/70 bg-card/70 hover:border-border hover:bg-card"
@@ -325,38 +313,7 @@ function RoiTile({
         onAnnotate();
       }}
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-foreground">ROI {roi.roi}</p>
-          <p className="text-xs text-muted-foreground">
-            {roi.bbox.w} x {roi.bbox.h}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {classificationLabel ? (
-            <span
-              className="rounded-full border px-2 py-1 text-[11px] font-medium"
-              style={colorBadgeStyle(classificationLabel.color)}
-            >
-              {classificationLabel.name}
-            </span>
-          ) : annotationState?.annotation?.classificationLabelId ? (
-            <span className="rounded-full border border-border px-2 py-1 text-[11px] font-medium text-foreground">
-              Classified
-            </span>
-          ) : null}
-          {hasMask ? (
-            <span className="rounded-full border border-sky-400/35 bg-sky-400/10 px-2 py-1 text-[11px] font-medium text-sky-200">
-              Mask
-            </span>
-          ) : null}
-          <div className="rounded-lg border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
-            x {roi.bbox.x} y {roi.bbox.y}
-          </div>
-        </div>
-      </div>
-
-      <div className="min-h-[13rem] flex-1 overflow-hidden rounded-xl border border-border/60 bg-black/10">
+      <div className="min-h-0 flex-1 overflow-hidden rounded-[1.125rem] border border-border/60 bg-black/10">
         <ViewerCanvasSurface
           className="h-full w-full"
           frame={tileState?.frame ?? null}
@@ -782,7 +739,7 @@ export default function RoiWorkspace({
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-background text-foreground">
+    <div className="h-full min-h-[720px] min-w-[1280px] overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 flex-col">
         <ViewNavbar
           workspacePath={workspacePath}
@@ -797,8 +754,8 @@ export default function RoiWorkspace({
         />
 
         <main className="flex-1 min-h-0 overflow-hidden">
-          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_18rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_20rem]">
-            <aside className="divide-y divide-border border-b border-border px-4 py-3 md:border-b-0 md:border-r lg:h-full lg:min-h-0 lg:overflow-y-auto xl:px-5">
+          <div className="grid h-full min-h-0 grid-cols-[16rem_minmax(0,1fr)_20rem] items-stretch">
+            <aside className="h-full min-h-0 overflow-y-auto divide-y divide-border border-r border-border px-5 py-4">
               <SidebarSection title="ROI Stack">
                 <SidebarField label="Position">
                   <AppSelect
@@ -926,10 +883,10 @@ export default function RoiWorkspace({
               </SidebarSection>
             </aside>
 
-            <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
+            <section className="h-full min-h-0 min-w-0 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                <div className="m-3 min-h-0 flex-1 overflow-auto md:m-4 md:mt-3">
-                  <div className="min-h-full rounded-2xl border border-border/60 bg-card/10 p-3 md:p-4">
+                <div className="m-4 min-h-0 flex-1 overflow-hidden">
+                  <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border/60 bg-card/10 p-4">
                     {roiEntries.length === 0 ? (
                       emptyText ? (
                         <div className="flex h-full min-h-[18rem] items-center justify-center px-6 text-center text-sm text-muted-foreground">
@@ -939,26 +896,12 @@ export default function RoiWorkspace({
                         <div className="h-full min-h-[18rem]" />
                       )
                     ) : (
-                      <div className="grid min-h-full grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                      <div className="grid h-full min-h-0 flex-1 grid-cols-3 grid-rows-3 gap-3">
                         {visibleRois.map((roi) => (
                           <RoiTile
                             key={roi.roi}
                             roi={roi}
                             tileState={tileStates[roi.roi]}
-                            annotationState={
-                              workspacePath && selection
-                                ? annotationStatuses[
-                                    makeRoiFrameKey(workspacePath, {
-                                      pos: selection.pos,
-                                      roi: roi.roi,
-                                      channel: selection.channel,
-                                      time: selection.time,
-                                      z: selection.z,
-                                    })
-                                  ]
-                                : undefined
-                            }
-                            annotationLabels={annotationLabelsState.labels}
                             selected={selectedRoi === roi.roi}
                             onSelect={() => setSelectedRoi(roi.roi)}
                             onAnnotate={() =>
@@ -973,7 +916,7 @@ export default function RoiWorkspace({
               </div>
             </section>
 
-            <aside className="divide-y divide-border border-t border-border px-4 py-3 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l xl:px-5">
+            <aside className="h-full min-h-0 overflow-y-auto divide-y divide-border border-l border-border px-5 py-4">
               <SidebarSection
                 title="Selected ROI"
                 action={

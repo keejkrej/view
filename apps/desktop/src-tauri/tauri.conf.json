@@ -14,8 +14,10 @@
       {
         "label": "main",
         "title": "View",
-        "width": 1440,
-        "height": 960
+        "width": 1280,
+        "height": 720,
+        "minWidth": 1280,
+        "minHeight": 720
       }
     ]
   },

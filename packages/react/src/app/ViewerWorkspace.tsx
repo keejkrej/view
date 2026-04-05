@@ -808,7 +808,7 @@ export default function ViewerWorkspace({
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-background text-foreground">
+    <div className="h-full min-h-[720px] min-w-[1280px] overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 flex-col">
         <ViewNavbar
           workspacePath={workspacePath}
@@ -823,8 +823,8 @@ export default function ViewerWorkspace({
         />
 
         <main className="flex-1 min-h-0 overflow-hidden">
-          <div className="grid h-full min-h-0 md:grid-cols-[16rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_18rem] lg:items-stretch xl:grid-cols-[16rem_minmax(0,1fr)_20rem]">
-            <aside className="divide-y divide-border border-b border-border px-4 py-3 md:border-b-0 md:border-r lg:h-full lg:min-h-0 lg:overflow-y-auto xl:px-5">
+          <div className="grid h-full min-h-0 grid-cols-[16rem_minmax(0,1fr)_20rem] items-stretch">
+            <aside className="h-full min-h-0 overflow-y-auto divide-y divide-border border-r border-border px-5 py-4">
               <SidebarSection title="Frame">
                 <SidebarField label="Position">
                   <AppSelect
@@ -1012,9 +1012,9 @@ export default function ViewerWorkspace({
               </SidebarSection>
             </aside>
 
-            <section className="min-h-0 md:min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
+            <section className="h-full min-h-0 min-w-0 overflow-hidden">
               <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                <div className="m-3 flex min-h-0 flex-1 overflow-hidden md:m-4 md:mt-3">
+                <div className="m-4 flex min-h-0 flex-1 overflow-hidden">
                   <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden rounded-2xl border border-border/60 bg-black/10">
                     <ViewerCanvasSurface
                       frame={frame}
@@ -1036,7 +1036,7 @@ export default function ViewerWorkspace({
               </div>
             </section>
 
-            <aside className="divide-y divide-border border-t border-border px-4 py-3 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:border-t-0 lg:border-l xl:px-5">
+            <aside className="h-full min-h-0 overflow-y-auto divide-y divide-border border-l border-border px-5 py-4">
               <SidebarSection
                 title="Grid"
                 action={

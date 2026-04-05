@@ -361,8 +361,8 @@ export default function RoiAnnotationEditor({
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="min-h-0 border-b border-border p-5 lg:border-b-0 lg:border-r">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_22rem] gap-0">
+          <div className="min-h-0 border-r border-border p-5">
             <RoiAnnotationCanvas
               frame={frame}
               labels={localLabels}
@@ -663,7 +663,7 @@ export default function RoiAnnotationEditor({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+              <div className="grid grid-cols-[minmax(0,1fr)_10rem] gap-3">
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium text-muted-foreground">Label name</p>
                   <Input

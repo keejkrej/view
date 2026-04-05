@@ -407,38 +407,6 @@ export default function ViewerCanvasSurface({
         ))}
       </div>
 
-      {!frame && loading ? (
-        <div
-          style={{
-            pointerEvents: "none",
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              minHeight: "18rem",
-              width: "100%",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 24,
-              border: "1px dashed rgba(255,255,255,0.08)",
-              background: "rgba(255,255,255,0.02)",
-              padding: "0 24px",
-              textAlign: "center",
-              fontSize: 14,
-              color: "rgba(255,255,255,0.56)",
-            }}
-          >
-            Loading frame...
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

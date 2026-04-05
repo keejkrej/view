@@ -152,12 +152,12 @@ export default function ViewNavbar({
 
   return (
     <>
-      <header className="border-b border-border/80 bg-background/95 px-4 py-3 backdrop-blur md:px-6 xl:px-8">
+      <header className="border-b border-border/80 bg-background/95 px-6 py-3 backdrop-blur">
         <div className="grid grid-cols-[1fr_minmax(0,56rem)_1fr] items-center gap-4">
           <div />
 
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="flex items-center justify-center gap-3">
               <ContextSummary
                 label="Workspace"
                 value={workspacePath}
@@ -213,7 +213,7 @@ export default function ViewNavbar({
 
       {openDataModalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               setOpenDataModalOpen(false);
@@ -250,7 +250,7 @@ export default function ViewNavbar({
             </div>
 
             <div className="px-5 pb-5">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-3">
                 <button
                   type="button"
                   className="group flex min-h-36 w-full flex-col items-start justify-center rounded-2xl border border-border/70 bg-muted/[0.12] px-5 py-5 text-left transition-colors hover:border-primary/35 hover:bg-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

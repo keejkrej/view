@@ -58,7 +58,7 @@ export default function ViewApp({
     if (selected) setSource({ kind: "czi", path: selected });
   };
 
-  return (
+  const workspace = (
     mode === "align" ? (
       <ViewerWorkspace
         key={source ? `align:${makeSourceKey(source)}` : "align:no-source"}
@@ -89,5 +89,11 @@ export default function ViewApp({
         onClearSource={() => setSource(null)}
       />
     )
+  );
+
+  return (
+    <div className="h-screen min-h-[720px] min-w-[1280px] overflow-auto bg-background">
+      {workspace}
+    </div>
   );
 }
